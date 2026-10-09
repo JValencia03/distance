@@ -1,36 +1,27 @@
 ---
 name: feature-testing
-description: Revisa, diseña, implementa o depura tests Flutter/Dart del frontend de Distance. Úsala cuando el objetivo principal sea verificar widgets, estado, modelos, consumo de API o regresiones; no para implementar una feature completa, que corresponde a flutter-feature.
-argument-hint: "Widget, flujo, comportamiento o fallo que deseas probar"
+description: Diseña, implementa o depura pruebas para los módulos Flutter/Dart o Go de Distance. Úsala cuando el objetivo principal sea verificar comportamiento o regresiones, no implementar una funcionalidad completa.
+argument-hint: "Módulo, componente, comportamiento o fallo que deseas probar"
 ---
 
-# Feature Testing — Distance frontend (Flutter / Windows)
+# Pruebas de funcionalidades — Distance
 
 **Solicitud:** $ARGUMENTS
 
-Lee y respeta el `CLAUDE.md` del repositorio actual. Este workspace contiene solo Flutter/Dart en Windows; no asumas acceso al backend Go en WSL2. Esta Skill se concentra en **pruebas**, no en añadir funcionalidades nuevas. Si la petición busca una nueva feature, indica que corresponde a `flutter-feature`.
+Lee el `CLAUDE.md` de la raíz. Este workspace contiene frontend Flutter/Dart y backend Go. Esta skill se concentra en pruebas; si la solicitud busca una funcionalidad completa, usa `flutter-feature` o `go-feature`.
 
 ## Procedimiento
 
-1. **Inspeccionar antes de actuar.** Revisa widgets, estado, clientes HTTP, modelos, test helpers, `pubspec.yaml` y tests existentes. Identifica qué comportamiento está confirmado en el frontend y qué depende de contratos externos.
-2. **Definir comportamientos observables.** Selecciona los casos valiosos: interacción de usuario, rendering, validación, loading, éxito, vacío, error, navegación y regresiones según la funcionalidad. No inventes estados que todavía no existan ni pruebes detalles privados del árbol de widgets sin motivo.
-3. **Elegir el nivel apropiado.** Usa unit tests para transformaciones y reglas Dart; widget tests con `flutter_test` para UI e interacción; integration tests cuando sea necesario comprobar comportamiento real de plataforma/dispositivo. Prefiere dependencias y mecanismos ya presentes. No añadas paquetes de mocking, state management o networking solo para testing sin justificar y obtener aprobación.
-4. **Aislar dependencias.** Evita red real en unit/widget tests: utiliza fakes o inyección sencilla adaptados al diseño existente, sin abstraer toda la aplicación. Simula respuestas usando únicamente contratos confirmados o aprobados; marca los ejemplos hipotéticos como borradores. Geolocalización, permisos, mapas y APIs nativas deben probarse con mecanismos que respete el entorno de tests; si precisan emulador, indica el requisito.
-5. **Implementar un cambio acotado.** Si el usuario pidió añadir/corregir tests, modifica el mínimo necesario. Si para poder testear hay que cambiar arquitectura, contrato API o dependencias, explica alternativas y solicita aprobación. Si se pidió solo revisión, no modifiques archivos. No cambies una expectativa para ocultar una regresión.
-6. **Ejecutar y diagnosticar.** Ejecuta `dart format` en archivos modificados, tests específicos cuando ayuden, `flutter test` y `flutter analyze` si el entorno lo permite. Distingue fallos de código, contratos no confirmados y limitaciones del SDK/emulador. No afirmes que un test de integración se ejecutó si no hubo dispositivo o servicio disponible.
-7. **Informar y enseñar.** Resume qué comportamiento verificaste, tests añadidos, comandos y resultados, riesgos y pendientes. Explica uno o dos conceptos útiles de Dart/Flutter (por ejemplo `testWidgets`, `WidgetTester`, `pumpAndSettle` y sus límites) comparándolos con JavaScript/Python si es práctico.
+1. **Inspeccionar antes de actuar.** Revisa código de producción, pruebas, helpers, dependencias y comandos del módulo implicado. Para flujos entre módulos, inspecciona ambos y verifica el contrato real.
+2. **Definir comportamiento observable.** Selecciona casos valiosos de éxito, error, entradas inválidas, límites e interacción/regresión. Separa comportamiento confirmado de expectativas propuestas; evita acoplar tests a detalles internos sin motivo.
+3. **Elegir el nivel apropiado.** Para Go, prioriza `testing`, tests de tabla y `net/http/httptest`; usa integración con PostgreSQL/PostGIS solo si el comportamiento lo requiere. Para Flutter, usa tests unitarios para lógica y `flutter_test` para widgets/interacción; usa integración de plataforma solo cuando sea necesaria.
+4. **Aislar recursos.** No llames servicios externos reales en unit/widget tests ni uses datos reales. Antes de usar base de datos, verifica prerrequisitos, aislamiento y limpieza. No introduzcas frameworks, paquetes de mocking o infraestructura solo por conveniencia.
+5. **Cambiar lo mínimo.** Añade o corrige pruebas si eso se pidió. En una auditoría, no edites. Si la solución exige alterar contrato, arquitectura o dependencias, plantea opciones y espera aprobación.
+6. **Ejecutar y diagnosticar.** Desde `backend/`, usa `go test ./...` y `gofmt` en los Go modificados. Desde `frontend/`, usa `dart format`, tests dirigidos o `flutter test`, y `flutter analyze` cuando sea pertinente. Distingue fallo del código, bloqueo del entorno y test no ejecutado.
+7. **Informar.** Resume comportamiento verificado, casos cubiertos y pendientes, archivos cambiados, comandos realmente ejecutados y riesgos. Explica brevemente conceptos de testing de Go o Flutter cuando ayuden.
 
-## Criterios específicos de Distance
+## Límites
 
-- Prioriza tests sobre descubrir, crear y unirse a planes cuando esas pantallas realmente existan; no diseñes tests de funcionalidades todavía no implementadas.
-- En funciones de ubicación, valida permisos, estados de error y exposición mínima de coordenadas solo según el comportamiento acordado.
-- Para JSON y llamadas HTTP, utiliza contratos confirmados. Ante ambigüedad, recurre a `api-contract` y produce un prompt de traspaso al backend cuando haga falta, sin acceder a WSL2.
-- Evita snapshots/golden tests frágiles si una prueba de comportamiento responde mejor a la necesidad. No impongas porcentajes de cobertura artificiales.
-
-## Formato de cierre
-
-- **Comportamiento examinado** y archivos inspeccionados.
-- **Casos cubiertos** y pendientes justificados.
-- **Archivos modificados** (o «sin cambios»).
-- **Verificación** con comandos realmente ejecutados y resultados.
-- **Concepto aprendido** y decisiones abiertas.
+- No exigir porcentajes de cobertura ni crear tests redundantes.
+- No inventar contratos HTTP, tablas o funcionalidades que no estén implementadas o acordadas.
+- Para casos que crucen frontend y backend, comprobar JSON, estados HTTP y estados de UI pertinentes sin acoplar los tests unitarios a servicios externos.

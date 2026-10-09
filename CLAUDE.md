@@ -1,64 +1,56 @@
-# Distance — Frontend (Flutter)
+# Distance
 
 ## Producto y alcance
 
-Distance es una aplicación mobile-first para convertir una intención de realizar una actividad en un plan compartido con otras personas cercanas. El producto gira alrededor de **planes y actividades**, no de mostrar directamente personas cercanas.
+Distance es una aplicación mobile-first para convertir la intención de realizar una actividad en un plan compartido con personas cercanas. El producto gira alrededor de **planes y actividades**, no de mostrar directamente personas cercanas.
 
 El MVP contempla seleccionar una actividad, descubrir planes cercanos, crear planes, unirse a ellos y permitir la participación de otras personas. No proponer por defecto followers, grupos permanentes, recomendaciones con IA, reputación avanzada u otras funcionalidades fuera de ese alcance.
 
-Un plan puede incluir actividad, creador, lugar/ubicación, fecha y hora, participantes y estado. Es un **modelo conceptual inicial**, no una afirmación de que ya existan modelos Dart, pantallas o endpoints específicos: verificar el código.
+Un plan puede incluir actividad, creador, lugar/ubicación, fecha y hora, participantes y estado. Es un modelo conceptual inicial, no evidencia de que ya existan entidades, pantallas o endpoints: inspeccionar el código antes de afirmarlo.
 
-## Entorno y responsabilidades
+## Workspace y responsabilidades
 
-- Este repositorio contiene **solo el frontend**; se desarrolla con **Flutter y Dart en Windows**.
-- VS Code, Flutter SDK, Android Studio, Android SDK y emuladores se ejecutan desde Windows.
-- Ruta conceptual: `~/projects/distance/frontend`. Confirmar la ubicación real del workspace; no asumir que esta notación equivale a una ruta de WSL2.
-- El backend se desarrolla por separado con Go en WSL2 (Ubuntu), con PostgreSQL y PostGIS cuando sea necesario.
-- No asumir acceso a los archivos del backend ni intentar administrarlo desde este workspace.
-- Responsabilidades de este repositorio: UI, composición de widgets, navegación, estado de interfaz, consumo de API, geolocalización del dispositivo, permisos móviles y mapas cuando formen parte de una funcionalidad aprobada.
+- El workspace compartido contiene `frontend/` (Flutter/Dart) y `backend/` (Go). Inspeccionar ambos módulos cuando la tarea cruce sus límites; no asumir repositorios, sesiones de Claude Code ni entornos aislados.
+- No asumir WSL2 ni una plataforma concreta para Go. Detectar el sistema y las herramientas disponibles en la sesión actual. Ejecutar Flutter desde el entorno que tenga Flutter y los SDK móviles configurados.
+- El código Flutter vive en `frontend/`; el módulo Go vive en `backend/`. Ejecutar comandos desde el directorio del módulo correspondiente.
+- Antes de operaciones Git, comprobar la raíz real. No mover, reinicializar ni alterar metadatos Git sin autorización explícita.
+- Responsabilidades Flutter: UI, composición de widgets, navegación, estado de interfaz, consumo HTTP, geolocalización del dispositivo, permisos móviles y mapas cuando formen parte de una funcionalidad aprobada.
+- Responsabilidades Go: servidor HTTP, reglas de negocio y persistencia cuando estén justificadas. El backend actual tiene alcance deliberadamente mínimo: `GET /health`; no inventar endpoints ni infraestructura ya implementados.
 
 ## Arquitectura y decisiones
 
-- Mantener una estructura simple y evolutiva; organización por funcionalidades (**feature-oriented**) cuando el código la justifique.
-- Separar de forma clara presentación, estado y acceso a datos sin introducir capas ceremoniales.
-- No asumir de antemano librerías de state management, routing, networking, mapas o geolocalización. Antes de incorporar una dependencia, explicar el problema que resuelve, alternativas y trade-offs, y obtener aprobación.
-- Evitar Clean Architecture excesiva, interfaces innecesarias, abstracciones especulativas, generadores y frameworks sin necesidad real.
-- Construir una experiencia **mobile-first**, con estados de carga, error y vacío cuando correspondan a la funcionalidad.
-- Tratar permisos y privacidad de ubicación como requisitos del producto: solicitar permiso cuando sea necesario, explicar su finalidad y no mostrar ubicación personal precisa sin un requisito y autorización claros.
+### Flutter
 
-## Forma de colaboración
+- Mantener una estructura simple y evolutiva; organizar por funcionalidades cuando el código lo justifique.
+- Separar presentación, estado y acceso a datos sin introducir capas ceremoniales.
+- No asumir librerías de state management, routing, networking, mapas o geolocalización. Antes de añadir dependencias, explicar necesidad, alternativas y trade-offs, y obtener aprobación.
+- Construir una experiencia mobile-first con estados de carga, error y vacío cuando correspondan.
 
-Actúa como senior Flutter engineer, software architect y mentor técnico. El usuario conoce JavaScript y Python y está aprendiendo Dart y Flutter.
+### Go
 
-- Antes de modificar, inspeccionar archivos relevantes y distinguir **estado verificado**, **contexto documentado** y **propuestas**.
-- Para tareas pequeñas y claras, implementar directamente el cambio mínimo y explicarlo después.
-- Ante decisiones arquitectónicas, nuevas dependencias o refactorizaciones importantes, presentar alternativas, trade-offs y propuesta **antes de cambiar** y solicitar aprobación.
-- No pedir confirmación para cada edición menor; evitar implementar funcionalidades adicionales sin justificar su valor para el MVP.
-- Explicar brevemente conceptos relevantes de Dart/Flutter (widgets, composición, `build`, estado, `Future`, `async`/`await`, ciclo de vida, navegación) y compararlos con JavaScript/Python si ayuda.
-- Trabajar en iteraciones verificables. Al terminar, resumir qué cambió, por qué, qué se probó y qué quedó pendiente; no afirmar que se ejecutaron pruebas si no ocurrió.
+- Favorecer un monolito modular pequeño, legible y evolutivo; preferir Go idiomático y `net/http` cuando sea suficiente.
+- No añadir frameworks HTTP, ORM, generadores o patrones especulativos. Evitar microservicios, Kubernetes, Clean Architecture ceremonial, DDD complejo, CQRS, event sourcing, interfaces especulativas y capas sin beneficio concreto.
+- PostgreSQL/PostGIS y Docker Compose se incorporarán cuando una funcionalidad los necesite; Redis no es obligatorio y requiere una necesidad concreta.
+- Usar migraciones versionadas si se modifica un esquema. Validar entradas, tratar errores y mantener secretos fuera del código.
 
-## Calidad y verificación
+### Integración y privacidad
 
-- Usar convenciones idiomáticas de Dart y Flutter, código legible y errores controlados.
-- Añadir o actualizar tests proporcionales a cada funcionalidad: unit tests, widget tests o integration tests según el comportamiento y el costo de mantenimiento.
-- Cuando corresponda, ejecutar `dart format`, `flutter analyze` y `flutter test` desde el entorno Windows; indicar cualquier fallo o bloqueo.
-- No imponer cobertura porcentual arbitraria ni crear tests de poco valor.
-- No hardcodear secretos ni configurar direcciones de desarrollo como si fueran URLs válidas universalmente; distinguir emulador, dispositivo físico y host WSL2 al conectar la API.
+- Coordinar cambios HTTP entre ambos módulos revisando directamente el código disponible. Definir método, ruta, parámetros, JSON, estados HTTP, errores, autenticación, formatos, unidades y nulabilidad cuando aplique.
+- No introducir OpenAPI, generación de clientes ni herramientas de contrato automáticamente. La idea inicial de conectarlos mediante OpenAPI no es un requisito vigente por sí sola; proponerlo únicamente si resuelve una necesidad concreta y obtener aprobación.
+- No inventar endpoints existentes. Ejemplos en documentación no prueban que estén implementados.
+- Solicitar permiso de ubicación solo cuando sea necesario. Minimizar precisión y exposición; no mostrar ni registrar coordenadas personales precisas sin requisito y autorización claros.
+- Distinguir la URL base según emulador, dispositivo físico y host donde corra la API; no hardcodear una URL de desarrollo como universal.
 
-## Contratos con backend
+## Colaboración y calidad
 
-Frontend y backend se desarrollan en **dos instancias independientes de Claude Code**. No suponer acceso compartido al código.
+- Antes de modificar, inspeccionar el código relevante y distinguir estado verificado, contexto documentado y propuestas.
+- Para tareas pequeñas y claras, implementar el cambio mínimo. Ante nuevas dependencias, decisiones arquitectónicas o refactorizaciones importantes, presentar opciones y trade-offs y esperar aprobación.
+- No pedir confirmación para cada edición menor ni ampliar el MVP sin justificación.
+- Añadir pruebas proporcionales al riesgo: `flutter_test` para lógica/UI y `testing`/`httptest` para Go; reservar pruebas de integración para comportamientos que realmente dependan de servicios externos.
+- Ejecutar `dart format`, `flutter analyze` y `flutter test` para cambios Flutter cuando el entorno lo permita. Para Go, ejecutar `gofmt` en los archivos modificados y `go test ./...` desde `backend/` cuando sea posible. Informar bloqueos reales y no afirmar verificaciones que no se ejecutaron.
+- Explicar brevemente conceptos relevantes de Dart/Flutter o Go cuando ayude al aprendizaje del usuario.
+- Al terminar, resumir qué cambió, por qué, qué se verificó y qué quedó pendiente.
 
-Para tareas que afecten a ambos lados:
+## Documentación y skills
 
-1. Definir o revisar el contrato HTTP: método, ruta, parámetros, request JSON, response JSON, códigos de estado, errores y autenticación pertinente.
-2. Aclarar unidades, formatos de fecha/hora, nulos y campos opcionales cuando correspondan.
-3. Implementar en este repositorio solo el consumo frontend y los comportamientos UI relacionados.
-4. Proporcionar un **prompt autocontenido para Claude Code backend** con el contrato y criterios de aceptación cuando se necesiten cambios allí.
-5. No inventar endpoints existentes; si hay documentación versionada, usarla como referencia y señalar inconsistencias.
-
-Ejemplos como `GET /health` y `GET /activities` son **posibles endpoints**, no evidencia de que ya estén implementados. Verificarlos antes de consumirlos.
-
-## Documentación
-
-Mantener este `CLAUDE.md` centrado en reglas persistentes. No añadir prompts temporales, tareas de un sprint ni largos tutoriales. Los procedimientos repetibles podrán residir en `.claude/skills/` cuando se creen. Proponer actualizar documentación relevante si cambia una decisión duradera o un contrato.
+Este archivo contiene reglas persistentes compartidas. Las skills reutilizables viven en `.claude/skills/` en la raíz del workspace; no duplicarlas dentro de `frontend/` o `backend/`. Mantenerlas alineadas con estas reglas.
