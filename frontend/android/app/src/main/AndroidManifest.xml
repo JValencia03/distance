@@ -3,6 +3,10 @@
         android:label="frontend"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- 3D map and characters render with flutter_scene on Flutter GPU. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableFlutterGPU"
+            android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

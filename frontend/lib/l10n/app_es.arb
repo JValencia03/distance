@@ -1,0 +1,188 @@
+{
+  "@@locale": "es",
+
+  "appTitle": "Distance",
+
+  "settingsTitle": "Ajustes",
+  "settingsTheme": "Tema",
+  "themeSystem": "Sistema",
+  "themeLight": "Claro",
+  "themeDark": "Oscuro",
+  "settingsLanguage": "Idioma",
+  "languageSystem": "Sistema",
+
+  "homeTitle": "¿Qué quieres hacer?",
+  "homeSubtitle": "Elige una actividad y encuentra planes cerca de ti.",
+  "chooseZone": "Elige tu zona",
+  "zonePickerTitle": "¿Dónde quieres buscar planes?",
+
+  "allPlans": "Todos los planes",
+  "filterAll": "Todas",
+  "createPlan": "Crear plan",
+  "planCreated": "Plan creado",
+  "noPlansTitle": "No hay planes cerca de {zone}",
+  "@noPlansTitle": {
+    "placeholders": { "zone": { "type": "String" } }
+  },
+  "noActivityPlansTitle": "No hay planes de {activity} cerca de {zone}",
+  "@noActivityPlansTitle": {
+    "description": "activity is the lowercase activity name.",
+    "placeholders": {
+      "activity": { "type": "String" },
+      "zone": { "type": "String" }
+    }
+  },
+  "noPlansMessage": "Crea uno y deja que otras personas se unan.",
+
+  "errorTitle": "Algo salió mal",
+  "retry": "Reintentar",
+  "loading": "Cargando…",
+  "errorConnection": "No se pudo conectar con el servidor.",
+  "errorTimeout": "El servidor tardó demasiado en responder.",
+  "errorUnexpectedResponse": "Respuesta inesperada del servidor.",
+
+  "planScreenTitle": "Plan",
+  "detailActivity": "Actividad",
+  "detailWhen": "Cuándo",
+  "detailMeetingPoint": "Punto de encuentro",
+  "detailParticipants": "Participantes",
+  "join": "Unirme",
+  "joinZoneTitle": "¿Desde qué zona te unes?",
+  "joinZoneNotice": "Otras personas verán esta zona en el mapa del plan. Es aproximada: nunca compartimos tu ubicación exacta.",
+  "joinFromZone": "Unirme desde {zone}",
+  "@joinFromZone": {
+    "placeholders": { "zone": { "type": "String" } }
+  },
+  "joinSuccess": "¡Listo! Ya participas en este plan.",
+  "noticeJoined": "Ya participas en este plan",
+  "noticeFull": "No quedan plazas disponibles",
+  "noticeCancelled": "Este plan fue cancelado",
+  "noticeEnded": "Este plan ya terminó",
+
+  "chipAvailable": "Disponible",
+  "chipJoined": "Participas",
+  "chipFull": "Completo",
+  "chipCancelled": "Cancelado",
+  "chipOngoing": "En curso",
+  "chipEnded": "Terminó",
+
+  "today": "Hoy",
+  "tomorrow": "Mañana",
+  "durationMinutes": "{minutes} min",
+  "@durationMinutes": {
+    "placeholders": { "minutes": { "type": "int" } }
+  },
+  "durationHours": "{hours} h",
+  "@durationHours": {
+    "placeholders": { "hours": { "type": "int" } }
+  },
+  "durationHoursMinutes": "{hours} h {minutes} min",
+  "@durationHoursMinutes": {
+    "placeholders": {
+      "hours": { "type": "int" },
+      "minutes": { "type": "int" }
+    }
+  },
+  "participants": "{count, plural, =1{1 participante} other{{count} participantes}}",
+  "@participants": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "participantsWithLimit": "{count}/{max} participantes",
+  "@participantsWithLimit": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "distanceSameZone": "En tu zona",
+  "distanceAway": "A {km}\u00a0km",
+  "@distanceAway": {
+    "description": "Non-breaking spaces keep the distance on one line.",
+    "placeholders": { "km": { "type": "String" } }
+  },
+
+  "fieldActivity": "Actividad",
+  "fieldTitle": "Título",
+  "fieldTitleHint": "Ej.: Leer en silencio en un café",
+  "fieldDescription": "Descripción (opcional)",
+  "fieldZone": "Zona",
+  "fieldPlace": "Lugar de encuentro",
+  "fieldPlaceHint": "Ej.: Café de la esquina, entrada principal",
+  "fieldDate": "Fecha",
+  "fieldTime": "Hora",
+  "fieldDuration": "Duración",
+  "fieldCreatorZone": "Tu zona",
+  "fieldCreatorZoneHelper": "Otras personas verán esta zona en el mapa del plan.",
+  "fieldLimit": "Límite de participantes (opcional)",
+  "fieldLimitHelper": "Incluyéndote. Déjalo vacío para no limitar.",
+  "publishPlan": "Publicar plan",
+  "errorChooseActivity": "Elige una actividad.",
+  "errorTitleRequired": "El título es obligatorio.",
+  "errorChooseZone": "Elige una zona.",
+  "errorPlaceRequired": "El lugar de encuentro es obligatorio.",
+  "errorLimitRange": "Escribe un número entre {min} y {max}.",
+  "@errorLimitRange": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
+  "errorStartsAtRequired": "Elige la fecha y la hora.",
+  "errorStartsAtPast": "La fecha y hora deben ser futuras.",
+
+  "settingsCharacter": "Tu personaje",
+  "settingsCharacterSubtitle": "Cómo te ven los demás en el mapa",
+  "avatarTitle": "Tu personaje",
+  "avatarSubtitle": "Así te verán los demás en el mapa de planes.",
+  "avatarDefaultHint": "Este es tu personaje por defecto. Personalízalo a tu gusto.",
+  "avatarSkin": "Aspecto",
+  "avatarBodyColor": "Color",
+  "avatarSkinTone": "Tono de piel",
+  "avatarAccessory": "Accesorio",
+  "avatarSave": "Guardar personaje",
+  "avatarSaved": "Personaje guardado",
+  "preview3dUnavailable": "La vista 3D no está disponible en este dispositivo.",
+  "colorCoral": "Coral",
+  "colorMint": "Menta",
+  "colorLavender": "Lavanda",
+  "colorSky": "Cielo",
+  "colorSunflower": "Girasol",
+  "colorPeach": "Durazno",
+  "colorForest": "Bosque",
+  "colorCharcoal": "Carbón",
+  "skinToneName": "Tono {number}",
+  "@skinToneName": {
+    "placeholders": { "number": { "type": "int" } }
+  },
+
+  "openMap": "Ver mapa",
+  "mapTitle": "Mapa de planes",
+  "mapHint": "Arrastra para moverte · pellizca para acercar o girar",
+  "mapEmptyTitle": "Todavía no hay planes en el mapa",
+  "mapEmptyMessage": "Cuando alguien cree o se una a un plan, aparecerá aquí.",
+  "mapLegendOngoing": "En curso",
+  "mapLegendUpcoming": "Próximos",
+  "mapYou": "Tú",
+  "mapNow": "Ahora",
+  "mapPeople": "{count, plural, =1{1 persona} other{{count} personas}}",
+  "@mapPeople": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "mapFromZones": "Desde {zones}",
+  "@mapFromZones": {
+    "description": "zones is a comma-separated list of zone names.",
+    "placeholders": { "zones": { "type": "String" } }
+  },
+  "mapOpenPlan": "Ver plan",
+  "mapEditCharacter": "Editar personaje",
+  "mapGroupLabel": "{activity}: {title}, {people} en {zone}",
+  "@mapGroupLabel": {
+    "description": "Screen reader label of a group of avatars on the map.",
+    "placeholders": {
+      "activity": { "type": "String" },
+      "title": { "type": "String" },
+      "people": { "type": "String" },
+      "zone": { "type": "String" }
+    }
+  }
+}

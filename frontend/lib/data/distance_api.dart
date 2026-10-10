@@ -25,8 +25,28 @@ const devUserId = String.fromEnvironment(
   defaultValue: 'demo-user',
 );
 
+enum ApiErrorKind {
+  /// The server could not be reached.
+  connection,
+
+  /// The server did not answer in time.
+  timeout,
+
+  /// The server answered something the app cannot read.
+  badResponse,
+
+  /// The server rejected the request; see [ApiException.message].
+  server,
+}
+
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode, this.fields = const {}});
+  const ApiException(
+    this.kind, {
+    this.message,
+    this.statusCode,
+    this.code,
+    this.fields = const {},
+  });
 
   /// Builds an exception from the API error format:
   /// `{"error": {"code": ..., "message": ..., "fields": {...}}}`.
@@ -35,27 +55,33 @@ class ApiException implements Exception {
     if (error is Map<String, dynamic> && error['message'] is String) {
       final fields = error['fields'];
       return ApiException(
-        error['message'] as String,
+        ApiErrorKind.server,
+        message: error['message'] as String,
         statusCode: statusCode,
+        code: error['code'] as String?,
         fields: fields is Map<String, dynamic>
             ? fields.map((k, v) => MapEntry(k, '$v'))
             : const {},
       );
     }
-    return ApiException(
-      'Error inesperado del servidor ($statusCode).',
-      statusCode: statusCode,
-    );
+    return ApiException(ApiErrorKind.badResponse, statusCode: statusCode);
   }
 
-  final String message;
+  final ApiErrorKind kind;
+
+  /// Message from the server, already in the requested language. Null for
+  /// errors detected by the app, which the UI describes from [kind].
+  final String? message;
   final int? statusCode;
+
+  /// Machine-readable error code from the API, e.g. `plan_full`.
+  final String? code;
 
   /// Validation problems keyed by JSON field name.
   final Map<String, String> fields;
 
   @override
-  String toString() => message;
+  String toString() => message ?? 'ApiException(${kind.name}, $statusCode)';
 }
 
 class DistanceApi {
@@ -70,17 +96,27 @@ class DistanceApi {
 
   final Uri _baseUrl;
 
-  /// Sent as `X-User-Id` when creating plans.
+  /// Development identity sent as `X-User-Id` on plan requests, so the API
+  /// can tell whether this user participates in a plan.
   final String userId;
+
+  /// Language sent as `Accept-Language`, so activity names and error
+  /// messages come back translated. The app keeps it in sync with its locale.
+  String languageCode = 'es';
+
   final http.Client _client;
 
   Future<List<Activity>> fetchActivities() async {
-    final json = await _send(() => _client.get(_uri('/activities')));
+    final json = await _send(
+      () => _client.get(_uri('/activities'), headers: _languageHeader),
+    );
     return _list(json['activities'], Activity.fromJson);
   }
 
   Future<List<Zone>> fetchZones() async {
-    final json = await _send(() => _client.get(_uri('/zones')));
+    final json = await _send(
+      () => _client.get(_uri('/zones'), headers: _languageHeader),
+    );
     return _list(json['zones'], Zone.fromJson);
   }
 
@@ -90,13 +126,15 @@ class DistanceApi {
     String? activityId,
   }) async {
     final query = {'zone': zoneId, 'activity': ?activityId};
-    final json = await _send(() => _client.get(_uri('/plans', query)));
+    final json = await _send(
+      () => _client.get(_uri('/plans', query), headers: _userHeaders),
+    );
     return _list(json['plans'], Plan.fromJson);
   }
 
   Future<Plan> fetchPlan(String id) async {
     final json = await _send(
-      () => _client.get(_uri('/plans/${Uri.encodeComponent(id)}')),
+      () => _client.get(_planUri(id), headers: _userHeaders),
     );
     return Plan.fromJson(json);
   }
@@ -105,15 +143,85 @@ class DistanceApi {
     final json = await _send(
       () => _client.post(
         _uri('/plans'),
-        headers: {'Content-Type': 'application/json', 'X-User-Id': userId},
+        headers: {..._userHeaders, 'Content-Type': 'application/json'},
         body: jsonEncode(plan.toJson()),
       ),
     );
     return Plan.fromJson(json);
   }
 
-  Uri _uri(String path, [Map<String, String>? query]) =>
-      _baseUrl.replace(path: path, queryParameters: query);
+  /// Adds the current user to the plan, showing [zoneId] to others, and
+  /// returns the updated plan. Fails with an [ApiException] whose
+  /// [ApiException.code] is `already_joined`, `plan_full`, `plan_cancelled`
+  /// or `plan_ended` when joining is not possible.
+  Future<Plan> joinPlan(String id, {required String zoneId}) async {
+    final json = await _send(
+      () => _client.post(
+        _planUri(id, '/participants'),
+        headers: {..._userHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode({'zoneId': zoneId}),
+      ),
+    );
+    return Plan.fromJson(json);
+  }
+
+  Future<AvatarOptions> fetchAvatarOptions() async {
+    final json = await _send(
+      () => _client.get(_uri('/avatar-options'), headers: _languageHeader),
+    );
+    return AvatarOptions.fromJson(json);
+  }
+
+  /// The current user's avatar, or the default one derived from their id if
+  /// they never saved one.
+  Future<AvatarProfile> fetchMyAvatar() async {
+    final json = await _send(
+      () => _client.get(_uri('/me/avatar'), headers: _userHeaders),
+    );
+    return _avatarProfile(json);
+  }
+
+  Future<AvatarProfile> saveMyAvatar(Avatar avatar) async {
+    final json = await _send(
+      () => _client.put(
+        _uri('/me/avatar'),
+        headers: {..._userHeaders, 'Content-Type': 'application/json'},
+        body: jsonEncode(avatar.toJson()),
+      ),
+    );
+    return _avatarProfile(json);
+  }
+
+  /// Zone layout plus upcoming and ongoing plans with their participants'
+  /// avatars, soonest first.
+  Future<CityMap> fetchMap({String? activityId}) async {
+    final query = {'activity': ?activityId};
+    final json = await _send(
+      () => _client.get(_uri('/map', query), headers: _userHeaders),
+    );
+    return CityMap.fromJson(json);
+  }
+
+  AvatarProfile _avatarProfile(Map<String, dynamic> json) => (
+    avatar: Avatar.fromJson(json['avatar'] as Map<String, dynamic>),
+    isDefault: json['isDefault'] as bool,
+  );
+
+  Map<String, String> get _languageHeader => {'Accept-Language': languageCode};
+
+  Map<String, String> get _userHeaders => {
+    ..._languageHeader,
+    'X-User-Id': userId,
+  };
+
+  Uri _planUri(String id, [String suffix = '']) =>
+      _uri('/plans/${Uri.encodeComponent(id)}$suffix');
+
+  // An empty query map would still add a trailing "?".
+  Uri _uri(String path, [Map<String, String>? query]) => _baseUrl.replace(
+    path: path,
+    queryParameters: query == null || query.isEmpty ? null : query,
+  );
 
   Future<Map<String, dynamic>> _send(
     Future<http.Response> Function() request,
@@ -122,9 +230,9 @@ class DistanceApi {
     try {
       response = await request().timeout(_timeout);
     } on TimeoutException {
-      throw const ApiException('El servidor tardó demasiado en responder.');
+      throw const ApiException(ApiErrorKind.timeout);
     } on http.ClientException {
-      throw const ApiException('No se pudo conectar con el servidor.');
+      throw const ApiException(ApiErrorKind.connection);
     }
 
     final Object? body;
@@ -134,7 +242,7 @@ class DistanceApi {
       body = jsonDecode(utf8.decode(response.bodyBytes));
     } on FormatException {
       throw ApiException(
-        'Respuesta inesperada del servidor.',
+        ApiErrorKind.badResponse,
         statusCode: response.statusCode,
       );
     }

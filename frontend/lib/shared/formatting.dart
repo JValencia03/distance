@@ -1,50 +1,63 @@
+import 'package:intl/intl.dart';
+
 import 'package:distance/data/models.dart';
+import 'package:distance/l10n/app_localizations.dart';
 
-const _weekdays = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
-const _months = [
-  'ene',
-  'feb',
-  'mar',
-  'abr',
-  'may',
-  'jun',
-  'jul',
-  'ago',
-  'sep',
-  'oct',
-  'nov',
-  'dic',
-];
-
-/// Formats a local date and time, e.g. "Hoy · 17:00" or "sáb 10 oct · 17:00".
-String formatPlanDate(DateTime local, {required DateTime now}) {
+/// Formats a local date and time in the app language, e.g. "Hoy · 17:00",
+/// "Tomorrow · 5:00 PM" or "sáb, 17 oct · 9:30".
+String formatPlanDate(
+  DateTime local, {
+  required DateTime now,
+  required AppLocalizations l10n,
+}) {
   final today = DateTime(now.year, now.month, now.day);
   final day = DateTime(local.year, local.month, local.day);
-  final time = formatTime(local.hour, local.minute);
-  final days = day.difference(today).inDays;
-  if (days == 0) return 'Hoy · $time';
-  if (days == 1) return 'Mañana · $time';
-  return '${formatDate(local)} · $time';
+  final label = switch (day.difference(today).inDays) {
+    0 => l10n.today,
+    1 => l10n.tomorrow,
+    _ => formatDate(local, l10n.localeName),
+  };
+  return '$label · ${formatTime(local, l10n.localeName)}';
 }
 
-/// Formats a date, e.g. "sáb 10 oct".
-String formatDate(DateTime date) =>
-    '${_weekdays[date.weekday - 1]} ${date.day} ${_months[date.month - 1]}';
-
-String formatTime(int hour, int minute) =>
-    '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
-
-/// "3 participantes" or "3/5 participantes".
-String formatParticipants(Plan plan) {
-  final count = plan.maxParticipants == null
-      ? '${plan.participantCount}'
-      : '${plan.participantCount}/${plan.maxParticipants}';
-  final noun = plan.participantCount == 1 && plan.maxParticipants == null
-      ? 'participante'
-      : 'participantes';
-  return '$count $noun';
+/// Start date and time plus end time, e.g. "Hoy · 17:00 – 18:30". Plans
+/// last at most 12 hours, so the end is shown as a time only.
+String formatPlanSchedule(
+  Plan plan, {
+  required DateTime now,
+  required AppLocalizations l10n,
+}) {
+  final start = formatPlanDate(plan.startsAt.toLocal(), now: now, l10n: l10n);
+  return '$start – ${formatTime(plan.endsAt.toLocal(), l10n.localeName)}';
 }
 
-/// "En tu zona" or "A 1.2 km". Distances are between zone centers.
-String formatDistance(double km) =>
-    km == 0 ? 'En tu zona' : 'A ${km.toStringAsFixed(1)} km';
+/// "45 min", "2 h" or "1 h 30 min".
+String formatDuration(Duration duration, AppLocalizations l10n) {
+  final hours = duration.inHours;
+  final minutes = duration.inMinutes % 60;
+  if (hours == 0) return l10n.durationMinutes(minutes);
+  if (minutes == 0) return l10n.durationHours(hours);
+  return l10n.durationHoursMinutes(hours, minutes);
+}
+
+/// Short date with weekday, ordered as the locale expects.
+String formatDate(DateTime date, String locale) =>
+    DateFormat.MMMEd(locale).format(date);
+
+/// Time with the locale's clock convention (24 h or AM/PM).
+String formatTime(DateTime time, String locale) =>
+    DateFormat.jm(locale).format(time);
+
+/// "3 participantes" or "3/5 participants".
+String formatParticipants(Plan plan, AppLocalizations l10n) {
+  final max = plan.maxParticipants;
+  return max == null
+      ? l10n.participants(plan.participantCount)
+      : l10n.participantsWithLimit(plan.participantCount, max);
+}
+
+/// "En tu zona" or "A 1,2 km" / "1.2 km away". Distances are between zone
+/// centers.
+String formatDistance(double km, AppLocalizations l10n) => km == 0
+    ? l10n.distanceSameZone
+    : l10n.distanceAway(NumberFormat('0.0', l10n.localeName).format(km));

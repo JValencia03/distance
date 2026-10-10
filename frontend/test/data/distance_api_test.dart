@@ -82,7 +82,9 @@ void main() {
         zoneId: 'chapinero',
         place: 'Café',
         startsAt: startsAt,
+        duration: const Duration(hours: 1, minutes: 30),
         maxParticipants: null,
+        creatorZoneId: 'usaquen',
       ),
     );
 
@@ -93,6 +95,24 @@ void main() {
     expect(body['startsAt'], endsWith('Z'));
     expect(body.containsKey('maxParticipants'), isTrue);
     expect(body['maxParticipants'], isNull);
+    expect(body['durationMinutes'], 90);
+    expect(body['creatorZoneId'], 'usaquen');
+  });
+
+  test('parses the end of the plan', () async {
+    final api = fakeApi(
+      (_) async => jsonResponse(
+        planJson(
+          startsAt: DateTime.utc(2099, 1, 1, 17),
+          duration: const Duration(minutes: 45),
+        ),
+      ),
+    );
+
+    final plan = await api.fetchPlan('plan-1');
+
+    expect(plan.endsAt, DateTime.utc(2099, 1, 1, 17, 45));
+    expect(plan.duration, const Duration(minutes: 45));
   });
 
   test('turns API errors into ApiException with field problems', () async {
@@ -124,18 +144,233 @@ void main() {
     await expectLater(
       offline.fetchZones(),
       throwsA(
-        isA<ApiException>().having(
-          (e) => e.message,
-          'message',
-          'No se pudo conectar con el servidor.',
-        ),
+        isA<ApiException>()
+            .having((e) => e.kind, 'kind', ApiErrorKind.connection)
+            .having((e) => e.message, 'message', isNull),
       ),
     );
 
     final broken = fakeApi((_) async => http.Response('<html>', 502));
     await expectLater(
       broken.fetchZones(),
-      throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 502)),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.kind, 'kind', ApiErrorKind.badResponse)
+            .having((e) => e.statusCode, 'status', 502),
+      ),
     );
   });
+
+  test('every request asks for the current app language', () async {
+    final languages = <String?>[];
+    final api = fakeApi((request) async {
+      languages.add(request.headers['Accept-Language']);
+      return switch (request.url.path) {
+        '/activities' => jsonResponse(activitiesJson),
+        '/plans' => jsonResponse({'plans': []}),
+        _ => jsonResponse(planJson()),
+      };
+    });
+
+    await api.fetchActivities();
+    api.languageCode = 'en';
+    await api.fetchActivities();
+    await api.fetchPlans(zoneId: 'chapinero');
+    await api.joinPlan('plan-1', zoneId: 'chapinero');
+
+    expect(languages, ['es', 'en', 'en', 'en']);
+  });
+
+  test(
+    'joinPlan posts to the participants route as the current user',
+    () async {
+      late http.Request sent;
+      final api = fakeApi((request) async {
+        sent = request;
+        return jsonResponse(planJson(participantCount: 2, isParticipant: true));
+      });
+
+      final plan = await api.joinPlan('plan 1', zoneId: 'usaquen');
+
+      expect(sent.method, 'POST');
+      expect(sent.url.path, '/plans/plan%201/participants');
+      expect(sent.headers['X-User-Id'], 'test-user');
+      expect(sent.headers['Content-Type'], startsWith('application/json'));
+      expect(jsonDecode(sent.body), {'zoneId': 'usaquen'});
+      expect(plan.participantCount, 2);
+      expect(plan.isParticipant, isTrue);
+    },
+  );
+
+  test('plan reads identify the user but catalogs do not', () async {
+    final headers = <String, Map<String, String>>{};
+    final api = fakeApi((request) async {
+      headers[request.url.path] = request.headers;
+      return switch (request.url.path) {
+        '/zones' => jsonResponse(zonesJson),
+        '/plans' => jsonResponse({'plans': []}),
+        _ => jsonResponse(planJson()),
+      };
+    });
+
+    await api.fetchZones();
+    await api.fetchPlans(zoneId: 'chapinero');
+    await api.fetchPlan('plan-1');
+
+    expect(headers['/zones']!.containsKey('X-User-Id'), isFalse);
+    expect(headers['/plans']!['X-User-Id'], 'test-user');
+    expect(headers['/plans/plan-1']!['X-User-Id'], 'test-user');
+  });
+
+  test('exposes the API error code', () async {
+    final api = fakeApi(
+      (_) async => jsonResponse({
+        'error': {'code': 'already_joined', 'message': 'Ya participas.'},
+      }, 409),
+    );
+
+    await expectLater(
+      api.joinPlan('plan-1', zoneId: 'chapinero'),
+      throwsA(
+        isA<ApiException>()
+            .having((e) => e.code, 'code', 'already_joined')
+            .having((e) => e.statusCode, 'statusCode', 409),
+      ),
+    );
+  });
+
+  group('Plan.joinAvailability', () {
+    final now = DateTime.utc(2099, 1, 1, 12);
+    JoinAvailability availability(Map<String, Object?> json) =>
+        Plan.fromJson(json).joinAvailability(now);
+
+    test('follows the API order: cancelled, ended, joined, full', () {
+      expect(availability(planJson()), JoinAvailability.available);
+      expect(
+        availability(planJson(isFull: true, isParticipant: true)),
+        JoinAvailability.joined,
+      );
+      expect(availability(planJson(isFull: true)), JoinAvailability.full);
+      expect(
+        availability(
+          planJson(
+            startsAt: now.subtract(const Duration(hours: 1)),
+            isParticipant: true,
+          ),
+        ),
+        JoinAvailability.ended,
+      );
+      expect(
+        availability(
+          planJson(status: 'cancelled', startsAt: DateTime.utc(2000)),
+        ),
+        JoinAvailability.cancelled,
+      );
+    });
+
+    test('ongoing plans can still be joined', () {
+      final ongoing = Plan.fromJson(
+        planJson(startsAt: now.subtract(const Duration(minutes: 59))),
+      );
+      expect(ongoing.joinAvailability(now), JoinAvailability.available);
+      expect(ongoing.isOngoingAt(now), isTrue);
+
+      final startingNow = Plan.fromJson(planJson(startsAt: now));
+      expect(startingNow.isOngoingAt(now), isTrue);
+
+      final upcoming = Plan.fromJson(planJson());
+      expect(upcoming.isOngoingAt(now), isFalse);
+    });
+  });
+
+  group('avatars', () {
+    const avatar = Avatar(
+      skin: 'basic',
+      bodyColor: 'mint',
+      skinTone: 'tone3',
+      accessory: 'cap',
+    );
+
+    test('reads the options in the app language', () async {
+      late http.Request sent;
+      final api = fakeApi((request) async {
+        sent = request;
+        return jsonResponse(avatarOptionsJson);
+      })..languageCode = 'en';
+
+      final options = await api.fetchAvatarOptions();
+
+      expect(sent.url.path, '/avatar-options');
+      expect(sent.headers['Accept-Language'], 'en');
+      expect(options.skins.single.name, 'Básico');
+      expect(options.bodyColors, ['coral', 'mint']);
+      expect(options.accessories.map((a) => a.id), ['none', 'cap']);
+    });
+
+    test('reads and saves the current user avatar', () async {
+      final requests = <http.Request>[];
+      final api = fakeApi((request) async {
+        requests.add(request);
+        return jsonResponse({
+          'avatar': avatar.toJson(),
+          'isDefault': request.method == 'GET',
+        });
+      });
+
+      final current = await api.fetchMyAvatar();
+      final saved = await api.saveMyAvatar(avatar);
+
+      expect(current.avatar, avatar);
+      expect(current.isDefault, isTrue);
+      expect(saved.isDefault, isFalse);
+      final put = requests.last;
+      expect(put.method, 'PUT');
+      expect(put.url.path, '/me/avatar');
+      expect(put.headers['X-User-Id'], 'test-user');
+      expect(jsonDecode(put.body), avatar.toJson());
+    });
+  });
+
+  test(
+    'fetchMap parses zones and participants, filtering by activity',
+    () async {
+      final urls = <Uri>[];
+      final api = fakeApi((request) async {
+        urls.add(request.url);
+        return jsonResponse({
+          'zones': [
+            {'id': 'chapinero', 'name': 'Chapinero', 'x': 0.6, 'y': 0.4},
+          ],
+          'plans': [
+            {
+              ...planJson(),
+              'participants': [
+                {
+                  'avatar': {
+                    'skin': 'basic',
+                    'bodyColor': 'sky',
+                    'skinTone': 'tone1',
+                    'accessory': 'none',
+                  },
+                  'zoneId': 'chapinero',
+                  'isMe': true,
+                },
+              ],
+            },
+          ],
+        });
+      });
+
+      final map = await api.fetchMap();
+      await api.fetchMap(activityId: 'reading');
+
+      expect(urls.first.toString(), 'http://api.test/map');
+      expect(urls.last.queryParameters, {'activity': 'reading'});
+      expect(map.zones.single.x, 0.6);
+      expect(map.plans.single.plan.id, 'plan-1');
+      final me = map.plans.single.participants.single;
+      expect(me.isMe, isTrue);
+      expect(me.avatar.bodyColor, 'sky');
+    },
+  );
 }
