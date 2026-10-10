@@ -1,0 +1,26 @@
+# Local development database. Start it with `docker compose up -d` and run
+# the API with:
+#   DATABASE_URL=postgres://distance:distance@localhost:5432/distance?sslmode=disable
+# The default password is for local development only; override it with the
+# POSTGRES_PASSWORD environment variable.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: distance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-distance}
+      POSTGRES_DB: distance
+    ports:
+      # Only reachable from this machine.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # PostgreSQL 18+ images keep their data under /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U distance -d distance"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:

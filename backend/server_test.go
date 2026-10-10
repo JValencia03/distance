@@ -11,7 +11,7 @@ import (
 
 func TestHealth(t *testing.T) {
 	rec := httptest.NewRecorder()
-	newMux(plans.NewMemoryStore()).ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
+	newMux(plans.NewMemoryStore(), plans.NewMemoryAvatarStore()).ServeHTTP(rec, httptest.NewRequest("GET", "/health", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)

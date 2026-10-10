@@ -3,12 +3,13 @@ package plans
 // Activity is an entry of the predefined activity catalog used to organize
 // and discover plans.
 type Activity struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID   string
+	Name text
 }
 
 // Zone is a predefined area used as a coarse reference location. Its center
 // coordinates stay on the server so clients never handle precise positions.
+// Zone names are proper nouns and are not translated.
 type Zone struct {
 	ID   string  `json:"id"`
 	Name string  `json:"name"`
@@ -17,16 +18,16 @@ type Zone struct {
 }
 
 var activities = []Activity{
-	{ID: "reading", Name: "Leer"},
-	{ID: "walking", Name: "Caminar"},
-	{ID: "running", Name: "Correr"},
-	{ID: "coffee", Name: "Tomar café"},
-	{ID: "studying", Name: "Estudiar"},
-	{ID: "gym", Name: "Ir al gimnasio"},
-	{ID: "gaming", Name: "Jugar videojuegos"},
-	{ID: "photography", Name: "Fotografía"},
-	{ID: "eating", Name: "Comer"},
-	{ID: "exploring", Name: "Explorar la ciudad"},
+	{ID: "reading", Name: text{"Leer", "Reading"}},
+	{ID: "walking", Name: text{"Caminar", "Walking"}},
+	{ID: "running", Name: text{"Correr", "Running"}},
+	{ID: "coffee", Name: text{"Tomar café", "Coffee"}},
+	{ID: "studying", Name: text{"Estudiar", "Studying"}},
+	{ID: "gym", Name: text{"Ir al gimnasio", "Gym"}},
+	{ID: "gaming", Name: text{"Jugar videojuegos", "Video games"}},
+	{ID: "photography", Name: text{"Fotografía", "Photography"}},
+	{ID: "eating", Name: text{"Comer", "Eating out"}},
+	{ID: "exploring", Name: text{"Explorar la ciudad", "Exploring the city"}},
 }
 
 // Placeholder zones (Bogotá) until the product chooses its launch city.
