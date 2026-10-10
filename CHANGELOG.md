@@ -121,7 +121,7 @@
   - Backend: `GET /map[?activity=]`. Devuelve la posición de las zonas (normalizada de 0 a 1, nunca latitud ni longitud) y los planes próximos y en curso (máximo 40) con sus participantes. De cada participante solo expone su personaje, la zona que eligió y si es el usuario de la petición; nunca su id.
   - Frontend:
     - Pantalla "Mapa de planes", desde el icono de mapa en la lista de planes.
-    - Cada zona es una isla con árboles y casas. Cada participante aparece en la zona que eligió, agrupado con las demás personas del mismo plan.
+    - Cada participante aparece en la zona que eligió, agrupado con las demás personas del mismo plan. (La primera versión dibujaba cada zona como una isla; la sustituyó la ciudad real, descrita más abajo.)
     - Los planes en curso tienen personajes que saltan y saludan y un anillo rojo brillante; los próximos, personajes en reposo y la hora de inicio.
     - El personaje del usuario lleva un marcador y su grupo dice "Tú".
     - Un dedo desplaza el mapa, dos dedos acercan y giran. La cámara empieza sobre la zona del usuario.
@@ -131,6 +131,31 @@
   - Dependencias aprobadas: `flutter_scene` (^0.24.3, motor 3D sobre Flutter GPU) y `vector_math` (^2.4.3, tipos de vectores que usa `flutter_scene`).
   - Flutter GPU está activado en `AndroidManifest.xml` e `Info.plist`, como pide `flutter_scene`.
   - En `flutter_test` no hay GPU: `Scene3d.enabled = false` en `test/flutter_test_config.dart`, así que las pantallas usan su versión 2D. La escena 3D se verificó en el emulador Android.
+- **El mapa de planes muestra Bogotá real con el estilo de la app.**
+  - Forma y posición reales de las 19 localidades urbanas, avenidas, ríos, parques, humedales, bosques de los Cerros Orientales y aeropuerto, dibujados como una maqueta pastel.
+    - Las 8 zonas del catálogo tienen su propio color; el resto de localidades, un tono neutro.
+  - 12 lugares reconocibles en su sitio, con un modelo pequeño y su nombre: Monserrate, Plaza de Bolívar, Torre Colpatria, El Campín, Universidad Nacional, Museo del Oro, Movistar Arena, Maloka, Parque Simón Bolívar, Jardín Botánico, Parque de la 93 y El Dorado.
+  - Sin tokens ni servicios de mapas.
+    - Datos de OpenStreetMap (ODbL), descargados una sola vez y procesados offline por `frontend/tool/build_city_map.dart`: simplificación, recorte, triangulación propia (adaptación de earcut) y asset binario `assets/map/bogota.bin`, de 1,1 MB.
+    - La app no hace peticiones de mapa: solo carga buffers ya preparados.
+    - La atribución "© OpenStreetMap contributors" se muestra sobre el mapa.
+  - Cada zona se coloca en el centro urbano que usa el servidor para las distancias, leído de `backend/internal/plans/catalog.go` como única fuente de verdad. El centro geométrico de algunas localidades, como Chapinero, cae en los cerros.
+  - Rendimiento:
+    - Cada capa de la ciudad es una sola malla con colores por vértice.
+    - Los árboles (~2.500) son 2 mallas instanciadas.
+    - Los personajes se dibujan con una malla instanciada por pieza (`Crowd`), así que el coste en draw calls no crece con el número de personas. Las matrices se reescriben en su sitio cada frame, sin reservar memoria.
+    - Solo personajes y lugares emblemáticos proyectan sombra, con 2 cascadas.
+    - Medido en el emulador (debug): de 179 a 95 draw calls y de 3,8 M a 1,4 M vértices por frame, a ~60 fps.
+  - Niveles de detalle:
+    - De cerca, una etiqueta por grupo; si para no tapar a otra tendría que alejarse mucho de sus personajes, se omite.
+    - De lejos, una etiqueta por zona con personas, planes y si hay algo en curso; al tocarla, la cámara vuela hacia la zona.
+  - La vista 2D alternativa dibuja la misma ciudad con `Canvas.drawVertices`.
+  - Skills actualizadas (`flutter-feature`, `go-feature`, `feature-testing`):
+    - No usar servicios con token ni de pago.
+    - Priorizar el rendimiento e implementar piezas propias cuando las alternativas listas cuesten mucho más hardware.
+    - Conservar el estilo de la app con datos reales.
+    - Convenciones de 3D y pruebas.
+  - Corregido: la pantalla del personaje mostraba un error genérico en vez del mensaje del servidor cuando fallaba la carga (`unwrapWaitError`).
 
 ### Contrato HTTP vigente
 

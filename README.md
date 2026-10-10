@@ -17,7 +17,7 @@ Distance is a mobile-first application designed to help people discover, create,
 | Join plans created by other users, respecting participant limits | Implemented |
 | Join plans while they are ongoing | Implemented |
 | Customizable character for each user | Implemented (basic skin) |
-| 3D map with the characters of the people taking part in each plan, in the zone each one chose | Implemented |
+| 3D map of the real city with the characters of the people taking part in each plan, in the zone each one chose | Implemented |
 
 ## Repository structure
 
@@ -110,6 +110,14 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8080
 ```
 
 Debug Android builds allow plain HTTP so they can reach the local API.
+
+The plans map shows the real shape of Bogotá (districts, avenues, parks, rivers and landmarks) in the app's pastel style. The city is built offline from OpenStreetMap data (© OpenStreetMap contributors, ODbL) into `assets/map/bogota.bin`; the app needs no map service or API key. To rebuild it, for example after changing zones in `backend/internal/plans/catalog.go`:
+
+```bash
+cd frontend
+dart run tool/build_city_map.dart            # uses the cached download
+dart run tool/build_city_map.dart --refresh  # downloads fresh data
+```
 
 The plans map and the character preview render in 3D with [flutter_scene](https://pub.dev/packages/flutter_scene), which draws through Flutter GPU. Flutter GPU is already enabled for Android (`AndroidManifest.xml`) and iOS (`Info.plist`), so `flutter run` needs no extra flags. The first build takes longer while flutter_scene compiles its shaders. On devices that cannot render 3D, both screens show a flat 2D version instead.
 

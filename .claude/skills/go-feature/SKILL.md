@@ -20,6 +20,11 @@ Aplica el `CLAUDE.md` de la raíz. El backend vive en `backend/` y Flutter en `f
 6. **Probar.** Añade tests útiles de éxito, error y límites cuando corresponda. Ejecuta `gofmt` en los `.go` modificados y `go test ./...` desde `backend/` cuando el entorno lo permita.
 7. **Cerrar.** Resume archivos modificados, decisiones, pruebas y resultados, bloqueos y pendientes. Explica brevemente conceptos Go relevantes cuando ayude al aprendizaje.
 
+## Servicios externos y rendimiento
+
+- No integres servicios que requieran token, API key, cuenta o facturación. Si hacen falta datos externos, usa fuentes abiertas, procesadas offline y versionadas en el repositorio, respetando su licencia y atribución.
+- Prefiere implementaciones propias, pequeñas y medibles frente a dependencias pesadas cuando el coste de recursos sea claramente mayor.
+
 ## Criterio de finalización
 
 El cambio respeta el alcance acordado, el contrato es coherente con Flutter cuando aplique y los resultados de verificación se informan con evidencia. No amplíes el backend más allá de la funcionalidad solicitada.

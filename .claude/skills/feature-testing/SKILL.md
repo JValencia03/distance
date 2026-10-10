@@ -25,3 +25,5 @@ Lee el `CLAUDE.md` de la raíz. Este workspace contiene frontend Flutter/Dart y 
 - No exigir porcentajes de cobertura ni crear tests redundantes.
 - No inventar contratos HTTP, tablas o funcionalidades que no estén implementadas o acordadas.
 - Para casos que crucen frontend y backend, comprobar JSON, estados HTTP y estados de UI pertinentes sin acoplar los tests unitarios a servicios externos.
+- `flutter_test` no tiene GPU: prueba la lógica 3D pura (geometría, proyección, distribución) con tests unitarios y las pantallas con su versión 2D. Verifica el render en el emulador.
+- Las herramientas offline de `frontend/tool/` se prueban con datos sintéticos; nunca descargues datos reales en un test.
