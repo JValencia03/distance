@@ -4,7 +4,7 @@
 
 Distance is a mobile-first application designed to help people discover, create, and join nearby plans around shared activities. Instead of browsing people nearby, users discover **plans**: things they can actually do together.
 
-> **Project status:** Early development. Activity selection, nearby plan discovery, and plan creation work end to end against a local API. Joining plans, authentication, and persistent storage are not implemented yet.
+> **Project status:** Early development. The MVP flow works end to end: choose an activity, discover nearby plans, create a plan, and join one. Authentication is not implemented yet.
 
 ## MVP
 
@@ -14,15 +14,19 @@ Distance is a mobile-first application designed to help people discover, create,
 | Discover upcoming plans near a reference zone, filtered by activity | Implemented |
 | View plan details: activity, meeting point, date and time, participants | Implemented |
 | Create a plan when there isn't a suitable one | Implemented |
-| Join plans created by other users | Planned |
+| Join plans created by other users, respecting participant limits | Implemented |
+| Join plans while they are ongoing | Implemented |
+| Customizable character for each user | Implemented (basic skin) |
+| 3D map with the characters of the people taking part in each plan, in the zone each one chose | Implemented |
 
 ## Repository structure
 
 ```text
 distance/
-├── backend/    Go HTTP API (net/http, standard library only)
-├── frontend/   Flutter mobile app
-├── CLAUDE.md   Shared project rules
+├── backend/      Go HTTP API (net/http)
+├── frontend/     Flutter mobile app
+├── compose.yaml  Local PostgreSQL for development
+├── CLAUDE.md     Shared project rules
 └── CHANGELOG.md
 ```
 
@@ -32,9 +36,17 @@ Both modules live in this single repository. Run each module's commands from its
 
 - **Flutter / Dart:** mobile client. Android is the initial development target.
 - **Go:** REST API built on `net/http`.
-- **`http` package:** the app's only third-party runtime dependency.
+- **PostgreSQL:** persistent storage, accessed with `pgx`. Schema migrations are plain SQL files embedded in the binary and applied on startup.
+- **App packages:** `http` for API requests, `flutter_localizations` + `intl` for translations and locale formats, and `shared_preferences` to remember theme and language.
 
-The current backend stores plans **in memory**, so data is lost when the server restarts. PostgreSQL/PostGIS will be added when a feature needs persistence.
+Without a database configured, the backend falls back to **in-memory** storage, and data is lost when the server restarts. PostGIS will be added when plans need real coordinates.
+
+## Theme and language
+
+The app has light and dark themes and is available in Spanish and English. Both follow the device by default and can be changed in **Settings** (gear icon on the home screen). The choice is saved on the device.
+
+- App texts live in `frontend/lib/l10n/app_es.arb` (template) and `app_en.arb`. Classes are generated on build; run `flutter gen-l10n` to regenerate them manually.
+- The app sends its language in `Accept-Language`, and the API answers activity names and error messages in that language. Spanish is the default. Plan titles and descriptions are written by users and are not translated.
 
 ## Responsibilities
 
@@ -54,16 +66,24 @@ Location is handled with privacy in mind. For now the app uses **predefined zone
 ### Prerequisites
 
 - Go (see `backend/go.mod` for the version).
+- Docker, to run PostgreSQL locally. Optional: without it the API uses in-memory storage.
 - Flutter SDK available on `PATH`.
 - Android SDK and an Android emulator or physical device.
 - VS Code with the Go, Flutter, and Dart extensions (recommended).
 
 ### Run the backend
 
+Start PostgreSQL and point the API at it:
+
 ```bash
+docker compose up -d
 cd backend
-go run .
+DATABASE_URL="postgres://distance:distance@localhost:5432/distance?sslmode=disable" go run .
 ```
+
+In PowerShell, set the variable first with `$env:DATABASE_URL = "..."`. Pending migrations are applied on startup.
+
+Without `DATABASE_URL`, `go run .` uses in-memory storage.
 
 The API listens on port `8080`. Check it with `curl http://localhost:8080/health`.
 
@@ -91,9 +111,11 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8080
 
 Debug Android builds allow plain HTTP so they can reach the local API.
 
+The plans map and the character preview render in 3D with [flutter_scene](https://pub.dev/packages/flutter_scene), which draws through Flutter GPU. Flutter GPU is already enabled for Android (`AndroidManifest.xml`) and iOS (`Info.plist`), so `flutter run` needs no extra flags. The first build takes longer while flutter_scene compiles its shaders. On devices that cannot render 3D, both screens show a flat 2D version instead.
+
 ### Development identity
 
-There is no authentication yet. The app sends a development user id in the `X-User-Id` header when creating plans; it defaults to `demo-user`. To simulate another user, run:
+There is no authentication yet. The app sends a development user id in the `X-User-Id` header with plan requests; it defaults to `demo-user`. The API uses it to record who creates or joins a plan and to tell the app whether the user already participates. To try joining as a different user, run:
 
 ```bash
 flutter run --dart-define=DEV_USER_ID=another-user
@@ -106,13 +128,17 @@ flutter run --dart-define=DEV_USER_ID=another-user
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness check |
-| `GET` | `/activities` | Activity catalog |
+| `GET` | `/activities` | Activity catalog, named in the `Accept-Language` language |
 | `GET` | `/zones` | Reference zones (names only) |
-| `GET` | `/plans?zone=<id>[&activity=<id>]` | Upcoming plans near a zone. Available plans come first, then nearest, then soonest. |
+| `GET` | `/plans?zone=<id>[&activity=<id>]` | Upcoming and ongoing plans near a zone. Available plans come first, then nearest, then soonest. |
 | `GET` | `/plans/{id}` | Plan details |
 | `POST` | `/plans` | Create a plan. Requires `X-User-Id`. |
+| `POST` | `/plans/{id}/participants` | Join a plan until it ends, choosing the zone shown to others. Requires `X-User-Id`. |
+| `GET` | `/avatar-options` | Values each avatar field accepts |
+| `GET` / `PUT` | `/me/avatar` | Read or save your character. Requires `X-User-Id`. |
+| `GET` | `/map[?activity=<id>]` | Zone layout plus upcoming and ongoing plans with their participants' avatars and chosen zones |
 
-Dates are ISO 8601 in UTC. The full request and response contract, including error format and status codes, is documented in [CHANGELOG.md](CHANGELOG.md).
+Every endpoint accepts `Accept-Language` (`es` or `en`; Spanish by default) for activity names and error messages. Dates are ISO 8601 in UTC. The full request and response contract, including error format and status codes, is documented in [CHANGELOG.md](CHANGELOG.md).
 
 ## Testing
 
@@ -122,12 +148,17 @@ cd backend
 gofmt -l .
 go test ./...
 
+# Backend integration tests against PostgreSQL (wipes plan data)
+DISTANCE_TEST_DATABASE_URL="postgres://.../distance_test?sslmode=disable" go test ./...
+
 # Frontend
 cd frontend
 dart format lib test
 flutter analyze
 flutter test
 ```
+
+PostgreSQL store tests are skipped unless `DISTANCE_TEST_DATABASE_URL` is set. They verify that concurrent joins never exceed a plan's limit. Point the variable at a disposable database, because the tests delete all plans.
 
 On Windows, Smart App Control may block Go test binaries built in `%TEMP%`. Setting `GOTMPDIR` to another directory works around it.
 
@@ -141,10 +172,8 @@ On Windows, Smart App Control may block Go test binaries built in `%TEMP%`. Sett
 
 ## Roadmap
 
-1. Join a plan, respecting participant limits.
-2. Persistent storage (PostgreSQL/PostGIS).
-3. Authentication to replace the development identity.
-4. Device location, only if it adds clear value over zones.
+1. Authentication to replace the development identity, then plan cancellation and leaving a plan.
+2. Device location and PostGIS, only if they add clear value over zones.
 
 ## License
 
