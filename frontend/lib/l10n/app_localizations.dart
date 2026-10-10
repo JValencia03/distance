@@ -734,6 +734,18 @@ abstract class AppLocalizations {
   /// **'Ahora'**
   String get mapNow;
 
+  /// No description provided for @mapZonePlans.
+  ///
+  /// In es, this message translates to:
+  /// **'{count, plural, =1{1 plan} other{{count} planes}}'**
+  String mapZonePlans(int count);
+
+  /// Screen reader label of a zone summary on the map.
+  ///
+  /// In es, this message translates to:
+  /// **'{zone}: {plans}, {people}'**
+  String mapZoneLabel(String zone, String plans, String people);
+
   /// No description provided for @mapPeople.
   ///
   /// In es, this message translates to:

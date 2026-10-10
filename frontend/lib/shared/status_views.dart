@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:distance/data/distance_api.dart';
@@ -173,6 +175,23 @@ String describeError(Object error, AppLocalizations l10n) => switch (error) {
   ApiException(kind: ApiErrorKind.timeout) => l10n.errorTimeout,
   _ => l10n.errorUnexpectedResponse,
 };
+
+/// The failure behind [error]: `.wait` on a record of futures throws a
+/// [ParallelWaitError] wrapping each failure in an [AsyncError]; this
+/// returns the first underlying one, or [error] itself.
+Object unwrapWaitError(Object error) {
+  if (error is! ParallelWaitError) return error;
+  final failures = switch (error.errors) {
+    (final AsyncError? a, final AsyncError? b) => [a, b],
+    (final AsyncError? a, final AsyncError? b, final AsyncError? c) => [
+      a,
+      b,
+      c,
+    ],
+    _ => const <AsyncError?>[],
+  };
+  return failures.nonNulls.firstOrNull?.error ?? error;
+}
 
 /// Full-screen loading state with an animated illustration, for the first
 /// load of the app, when there is no layout yet to sketch with skeletons.

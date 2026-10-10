@@ -31,19 +31,22 @@ const mapZonesJson = [
   {'id': 'usaquen', 'name': 'Usaquén', 'x': 0.8, 'y': 0.3},
 ];
 
-MapLayout layoutOf(List<Map<String, Object?>> plans) =>
-    MapLayout.of(CityMap.fromJson({'zones': mapZonesJson, 'plans': plans}));
+/// Places zones at fixed points, as the city asset would.
+final _centers = {
+  'chapinero': vm.Vector3(2, 0, 1),
+  'usaquen': vm.Vector3(4, 0, 6),
+};
+
+MapLayout layoutOf(List<Map<String, Object?>> plans) => MapLayout.of(
+  CityMap.fromJson({'zones': mapZonesJson, 'plans': plans}),
+  place: (zone) => _centers[zone.id]!,
+);
 
 void main() {
-  test('places zones like the city, with north away from the camera', () {
+  test('places each zone where the city says', () {
     final layout = layoutOf([]);
-    final chapinero = layout.zones.firstWhere((z) => z.zone.id == 'chapinero');
     final usaquen = layout.zones.firstWhere((z) => z.zone.id == 'usaquen');
-
-    // Usaquén is north-east of Chapinero: larger x (east) and z (north).
-    expect(usaquen.center.x, greaterThan(chapinero.center.x));
-    expect(usaquen.center.z, greaterThan(chapinero.center.z));
-    expect(MapLayout.worldPosition(0.5, 0.5), vm.Vector3.zero());
+    expect(usaquen.center, _centers['usaquen']);
   });
 
   test('groups each plan by the zone its participants chose', () {
@@ -64,29 +67,36 @@ void main() {
     expect(inUsaquen.peopleInZone, 2);
     expect(inUsaquen.includesMe, isTrue);
     expect(inUsaquen.participants.first.isMe, isTrue, reason: 'me first');
+    expect((inUsaquen.center - _centers['usaquen']!).length, lessThan(1));
 
     final inChapinero = layout.clusters.where((c) => c.zone.id == 'chapinero');
     expect(inChapinero.map((c) => c.plan.plan.id), ['a', 'b']);
-    // Two plans in one zone stand apart.
+    // Two plans in one zone stand apart, further than their people spread.
     final [first, second] = inChapinero.toList();
-    expect((first.center - second.center).length, greaterThan(1));
+    expect(
+      (first.center - second.center).length,
+      greaterThan(first.radius + second.radius),
+    );
   });
 
-  test('keeps everyone on their island and caps crowds', () {
+  test('keeps a group close together and caps crowds', () {
     final crowd = [for (var i = 0; i < 12; i++) participantJson()];
     final layout = layoutOf([mapPlanJson('a', crowd)]);
     final cluster = layout.clusters.single;
-    final island = layout.zones.firstWhere((z) => z.zone.id == 'chapinero');
 
     expect(cluster.participants, hasLength(MapLayout.maxAvatarsPerCluster));
     expect(cluster.hiddenCount, 12 - MapLayout.maxAvatarsPerCluster);
     expect(cluster.peopleInZone, 12);
-    for (final position in cluster.avatarPositions) {
+    // Neighbours do not overlap, and the group fits in a few hundred metres.
+    final positions = cluster.avatarPositions;
+    for (var i = 0; i < positions.length; i++) {
+      final next = positions[(i + 1) % positions.length];
       expect(
-        (position - island.center).length,
-        lessThan(MapLayout.islandRadius - 0.3),
+        (positions[i] - next).length,
+        greaterThan(MapLayout.avatarSpacing * 0.9),
       );
     }
+    expect(cluster.radius, lessThan(0.5));
   });
 
   test('participants in an unknown zone stand in the plan zone', () {

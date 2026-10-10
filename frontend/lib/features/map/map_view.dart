@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +9,8 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 import 'package:distance/features/avatar/avatar_badge.dart';
 import 'package:distance/features/avatar/character.dart';
+import 'package:distance/features/map/city_map.dart';
+import 'package:distance/features/map/city_scene.dart';
 import 'package:distance/features/map/map_layout.dart';
 import 'package:distance/l10n/app_localizations.dart';
 import 'package:distance/shared/activity_style.dart';
@@ -23,17 +27,20 @@ typedef WorldProjector = Offset? Function(vm.Vector3 world);
 /// Color of everything that says "happening now" on the map.
 const liveColor = Color(0xFFFF4D6D);
 
-/// The plans map: islands for zones and the participants' characters, as a
-/// 3D scene the user can pan, zoom and turn, or as a flat top-down map on
-/// devices without 3D. Tapping a group calls [onClusterTap].
+/// The plans map: the real city, drawn in the app's style, with the
+/// characters of the people taking part in each plan standing in the
+/// district they chose. A 3D scene the user can pan, zoom and turn, or a
+/// flat map on devices without 3D. Tapping a group calls [onClusterTap].
 class MapView extends StatefulWidget {
   const MapView({
     super.key,
+    required this.city,
     required this.layout,
     required this.onClusterTap,
     this.focusZoneId,
   });
 
+  final CityMapAsset city;
   final MapLayout layout;
   final ValueChanged<MapCluster> onClusterTap;
 
@@ -49,20 +56,46 @@ class _MapViewState extends State<MapView> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(
+    final map = FutureBuilder(
       future: _ready,
       builder: (context, snapshot) => switch (snapshot.data) {
         null => const Center(child: CircularProgressIndicator()),
         true => _Map3d(
+          city: widget.city,
           layout: widget.layout,
           focusZoneId: widget.focusZoneId,
           onClusterTap: widget.onClusterTap,
         ),
         false => _Map2d(
+          city: widget.city,
           layout: widget.layout,
           onClusterTap: widget.onClusterTap,
         ),
       },
+    );
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        map,
+        // The data license requires the attribution next to the map.
+        Positioned(
+          left: 8,
+          top: 8,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                widget.city.attribution,
+                style: const TextStyle(fontSize: 10, color: Color(0xFF4A4458)),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -88,108 +121,184 @@ class _Sky extends StatelessWidget {
   }
 }
 
-/// Tap targets and labels drawn over either view: a bubble above each
-/// cluster and the name of each zone.
+/// Tap targets and labels drawn over either view. Group bubbles come
+/// first, then landmarks, then district names. A bubble that would cover
+/// one already placed moves up a little, or is left out if it would end up
+/// far from its people; names that collide are left out.
+///
+/// From afar ([onZoneTap] set), each zone gets a single summary bubble
+/// instead of one per group, so the map stays readable.
 class _Overlay extends StatelessWidget {
   const _Overlay({
+    required this.city,
     required this.layout,
     required this.project,
     required this.bubbleLift,
-    required this.labelOffset,
     required this.onClusterTap,
+    this.onZoneTap,
   });
 
+  final CityMapAsset city;
   final MapLayout layout;
   final WorldProjector project;
 
   /// Height above a cluster's center where its bubble points.
   final double bubbleLift;
-
-  /// Where a zone's name goes relative to its island's center.
-  final vm.Vector3 labelOffset;
   final ValueChanged<MapCluster> onClusterTap;
+
+  /// When set, zones are summarized and tapping one calls this.
+  final ValueChanged<ZoneSpot>? onZoneTap;
+
+  static const _bubbleSize = Size(170, 40);
+
+  /// How far a bubble may move up to avoid another before it is dropped.
+  static const _maxShift = 90.0;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Stack(
-      clipBehavior: Clip.hardEdge,
-      children: [
-        for (final island in layout.zones)
-          if (project(island.center + labelOffset) case final at?)
-            Positioned(
-              left: at.dx,
-              top: at.dy,
-              child: FractionalTranslation(
-                translation: const Offset(-0.5, -0.5),
-                child: IgnorePointer(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface.withValues(alpha: 0.75),
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: Text(
-                      island.zone.name,
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        for (final (cluster, at) in _placeBubbles())
+    final placed = <Rect>[];
+    final children = <Widget>[];
+
+    // Bubbles nearer the bottom of the view (closer to the camera) are
+    // placed first and stay put; the others move up when they collide.
+    void bubbles<T>(
+      Iterable<(T, vm.Vector3)> items,
+      Widget Function(T item) build,
+    ) {
+      final anchors = [
+        for (final (item, world) in items)
+          if (project(world + vm.Vector3(0, bubbleLift, 0)) case final at?)
+            (item, at),
+      ]..sort((a, b) => b.$2.dy.compareTo(a.$2.dy));
+      for (final (item, anchor) in anchors) {
+        Rect rectAt(Offset p) => Rect.fromLTWH(
+          p.dx - _bubbleSize.width / 2,
+          p.dy - _bubbleSize.height,
+          _bubbleSize.width,
+          _bubbleSize.height,
+        );
+        Offset? at = anchor;
+        while (at != null) {
+          final hit = placed.where((r) => r.overlaps(rectAt(at!))).firstOrNull;
+          if (hit == null) break;
+          final moved = Offset(at.dx, hit.top - 4);
+          at = anchor.dy - moved.dy > _maxShift ? null : moved;
+        }
+        if (at == null) continue;
+        placed.add(rectAt(at));
+        children.add(
           Positioned(
             left: at.dx,
             top: at.dy,
             child: FractionalTranslation(
               // Anchor the bubble's bottom center on the point.
               translation: const Offset(-0.5, -1),
-              child: ClusterBubble(
-                cluster: cluster,
-                onTap: () => onClusterTap(cluster),
-              ),
+              child: build(item),
             ),
           ),
-      ],
-    );
-  }
-
-  /// Approximate size of a bubble, enough to keep them from overlapping.
-  static const _bubbleSize = Size(170, 40);
-
-  /// Where each visible bubble goes: above its cluster, moved up while it
-  /// would cover a bubble already placed. Bubbles nearer the bottom of the
-  /// view (closer to the camera) are placed first and stay put.
-  List<(MapCluster, Offset)> _placeBubbles() {
-    final anchors = [
-      for (final cluster in layout.clusters)
-        if (project(cluster.center + vm.Vector3(0, bubbleLift, 0))
-            case final at?)
-          (cluster, at),
-    ]..sort((a, b) => b.$2.dy.compareTo(a.$2.dy));
-    final placed = <Rect>[];
-    final result = <(MapCluster, Offset)>[];
-    for (final (cluster, anchor) in anchors) {
-      var at = anchor;
-      Rect rectAt(Offset p) => Rect.fromLTWH(
-        p.dx - _bubbleSize.width / 2,
-        p.dy - _bubbleSize.height,
-        _bubbleSize.width,
-        _bubbleSize.height,
-      );
-      for (var tries = 0; tries < 8; tries++) {
-        final rect = rectAt(at);
-        final hit = placed.where((r) => r.overlaps(rect)).firstOrNull;
-        if (hit == null) break;
-        at = Offset(at.dx, hit.top - 4);
+        );
       }
-      placed.add(rectAt(at));
-      result.add((cluster, at));
     }
-    return result;
+
+    final zoneTap = onZoneTap;
+    if (zoneTap == null) {
+      bubbles(
+        [for (final c in layout.clusters) (c, c.center)],
+        (cluster) =>
+            ClusterBubble(cluster: cluster, onTap: () => onClusterTap(cluster)),
+      );
+    } else {
+      final byZone = <ZoneSpot, List<MapCluster>>{};
+      for (final cluster in layout.clusters) {
+        final spot = layout.zones.firstWhere(
+          (z) => z.zone.id == cluster.zone.id,
+        );
+        byZone.putIfAbsent(spot, () => []).add(cluster);
+      }
+      bubbles(
+        [for (final spot in byZone.keys) (spot, spot.center)],
+        (spot) => _ZoneBubble(
+          zone: spot,
+          clusters: byZone[spot]!,
+          onTap: () => zoneTap(spot),
+        ),
+      );
+    }
+
+    void label(vm.Vector3 world, String text, {required bool landmark}) {
+      final at = project(world);
+      if (at == null) return;
+      final width = text.length * (landmark ? 6.5 : 6.0) + (landmark ? 26 : 14);
+      final rect = Rect.fromCenter(center: at, width: width, height: 20);
+      if (placed.any((r) => r.overlaps(rect))) return;
+      placed.add(rect);
+      children.add(
+        Positioned(
+          left: at.dx,
+          top: at.dy,
+          child: FractionalTranslation(
+            translation: const Offset(-0.5, -0.5),
+            child: IgnorePointer(
+              child: _Label(text: text, landmark: landmark),
+            ),
+          ),
+        ),
+      );
+    }
+
+    for (final landmark in city.landmarks) {
+      label(
+        vm.Vector3(landmark.x, 0, landmark.z),
+        landmark.name,
+        landmark: true,
+      );
+    }
+    for (final region in city.regions) {
+      label(
+        vm.Vector3(region.labelX, 0, region.labelZ),
+        region.name,
+        landmark: false,
+      );
+    }
+    return Stack(clipBehavior: Clip.hardEdge, children: children);
+  }
+}
+
+class _Label extends StatelessWidget {
+  const _Label({required this.text, required this.landmark});
+
+  final String text;
+  final bool landmark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = landmark
+        ? theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)
+        : theme.textTheme.labelSmall;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withValues(
+          alpha: landmark ? 0.85 : 0.65,
+        ),
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (landmark) ...[
+            Icon(
+              Icons.star_rounded,
+              size: 12,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 2),
+          ],
+          Text(text, style: style),
+        ],
+      ),
+    );
   }
 }
 
@@ -267,6 +376,61 @@ class ClusterBubble extends StatelessWidget {
   }
 }
 
+/// The label of a zone seen from afar: how many people and plans it has,
+/// and whether any is happening now. Tapping it flies the camera there.
+class _ZoneBubble extends StatelessWidget {
+  const _ZoneBubble({
+    required this.zone,
+    required this.clusters,
+    required this.onTap,
+  });
+
+  final ZoneSpot zone;
+  final List<MapCluster> clusters;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final now = DateTime.now();
+    final people = clusters.fold(0, (sum, c) => sum + c.peopleInZone);
+    final plans = l10n.mapZonePlans(clusters.length);
+    final ongoing = clusters.any((c) => c.plan.plan.isOngoingAt(now));
+    final includesMe = clusters.any((c) => c.includesMe);
+    return Semantics(
+      button: true,
+      label: l10n.mapZoneLabel(zone.zone.name, plans, l10n.mapPeople(people)),
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Pressable3d(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(10, 5, 12, 5),
+            decoration: clayDecoration(
+              colors,
+              includesMe ? colors.primaryContainer : colors.surface,
+              radius: 100,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.groups_rounded, size: 18, color: colors.primary),
+                const SizedBox(width: 4),
+                Text('$people', style: theme.textTheme.labelLarge),
+                const SizedBox(width: 6),
+                if (ongoing) ...[const _LiveDot(), const SizedBox(width: 4)],
+                Text(plans, style: theme.textTheme.labelSmall),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A pulsing red dot, the "live" sign of a plan happening now.
 class _LiveDot extends StatefulWidget {
   const _LiveDot();
@@ -308,10 +472,16 @@ class _LiveDotState extends State<_LiveDot>
 // ---------------------------------------------------------------------------
 // 2D fallback
 
-/// Top-down map: islands as circles and characters as flat badges.
+/// Top-down city drawn with the same triangles as the 3D scene, and the
+/// characters as flat badges.
 class _Map2d extends StatelessWidget {
-  const _Map2d({required this.layout, required this.onClusterTap});
+  const _Map2d({
+    required this.city,
+    required this.layout,
+    required this.onClusterTap,
+  });
 
+  final CityMapAsset city;
   final MapLayout layout;
   final ValueChanged<MapCluster> onClusterTap;
 
@@ -323,43 +493,25 @@ class _Map2d extends StatelessWidget {
         const _Sky(),
         LayoutBuilder(
           builder: (context, constraints) {
-            final side = math.min(constraints.maxWidth, constraints.maxHeight);
-            final origin = Offset(
-              (constraints.maxWidth - side) / 2,
-              (constraints.maxHeight - side) / 2,
+            final view = _FlatView(city.bounds, constraints.biggest);
+            final badge = math.max(
+              12.0,
+              MapLayout.avatarSpacing * view.scale * 1.5,
             );
-            Offset project(vm.Vector3 world) =>
-                origin +
-                Offset(
-                  (world.x / MapLayout.worldSize + 0.5) * side,
-                  (0.5 - world.z / MapLayout.worldSize) * side,
-                );
-            final scale = side / MapLayout.worldSize;
-            final badge = MapLayout.avatarSpacing * scale * 1.6;
             return Stack(
               children: [
-                for (final island in layout.zones)
-                  Positioned(
-                    left:
-                        project(island.center).dx -
-                        MapLayout.islandRadius * scale,
-                    top:
-                        project(island.center).dy -
-                        MapLayout.islandRadius * scale,
-                    child: Container(
-                      width: MapLayout.islandRadius * 2 * scale,
-                      height: MapLayout.islandRadius * 2 * scale,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFBFE3B0),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ),
+                Positioned.fill(
+                  child: CustomPaint(painter: _CityPainter(city, view)),
+                ),
                 for (final cluster in layout.clusters)
                   for (final (i, participant) in cluster.participants.indexed)
                     Positioned(
-                      left: project(cluster.avatarPositions[i]).dx - badge / 2,
-                      top: project(cluster.avatarPositions[i]).dy - badge / 2,
+                      left:
+                          view.project(cluster.avatarPositions[i]).dx -
+                          badge / 2,
+                      top:
+                          view.project(cluster.avatarPositions[i]).dy -
+                          badge / 2,
                       child: AvatarBadge(
                         avatar: participant.avatar,
                         size: badge,
@@ -367,10 +519,10 @@ class _Map2d extends StatelessWidget {
                     ),
                 Positioned.fill(
                   child: _Overlay(
+                    city: city,
                     layout: layout,
-                    project: project,
+                    project: view.project,
                     bubbleLift: 0,
-                    labelOffset: vm.Vector3(0, 0, -MapLayout.islandRadius),
                     onClusterTap: onClusterTap,
                   ),
                 ),
@@ -383,29 +535,106 @@ class _Map2d extends StatelessWidget {
   }
 }
 
+/// Fits the city's bounds into a view, north up.
+class _FlatView {
+  factory _FlatView(Float32List bounds, Size size) {
+    final width = bounds[2] - bounds[0], depth = bounds[3] - bounds[1];
+    final scale = math.min(size.width / width, size.height / depth);
+    return _FlatView._(
+      bounds[0],
+      bounds[3],
+      scale,
+      Offset(
+        (size.width - width * scale) / 2,
+        (size.height - depth * scale) / 2,
+      ),
+    );
+  }
+
+  _FlatView._(this.minX, this.maxZ, this.scale, this.origin);
+
+  final double minX;
+  final double maxZ;
+
+  /// Pixels per kilometre.
+  final double scale;
+  final Offset origin;
+
+  Offset project(vm.Vector3 world) => offset(world.x, world.z);
+
+  Offset offset(double x, double z) =>
+      origin + Offset((x - minX) * scale, (maxZ - z) * scale);
+}
+
+class _CityPainter extends CustomPainter {
+  _CityPainter(this.city, this.view);
+
+  final CityMapAsset city;
+  final _FlatView view;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final regionColors = [
+      for (final (i, r) in city.regions.indexed) CityPalette.region(r, i),
+    ];
+    void layer(CityLayer kind, Color Function(int attribute) color) {
+      final mesh = city.layers[kind];
+      if (mesh == null || mesh.indices.isEmpty) return;
+      final positions = <Offset>[
+        for (var i = 0; i < mesh.vertexCount; i++)
+          view.offset(mesh.positions[i * 2], mesh.positions[i * 2 + 1]),
+      ];
+      canvas.drawVertices(
+        ui.Vertices(
+          VertexMode.triangles,
+          positions,
+          colors: [for (final a in mesh.attributes) color(a)],
+          indices: mesh.indices,
+        ),
+        BlendMode.dst,
+        Paint(),
+      );
+    }
+
+    layer(CityLayer.land, (a) => regionColors[a]);
+    layer(CityLayer.forest, (_) => CityPalette.forest);
+    layer(CityLayer.airport, (_) => CityPalette.airport);
+    layer(CityLayer.park, (a) => a == 1 ? CityPalette.golf : CityPalette.park);
+    layer(CityLayer.water, (_) => CityPalette.water);
+    layer(CityLayer.borders, (_) => CityPalette.border);
+    layer(CityLayer.roads, (a) => CityPalette.road(CityRoadClass.values[a]));
+  }
+
+  @override
+  bool shouldRepaint(_CityPainter oldDelegate) =>
+      oldDelegate.city != city ||
+      oldDelegate.view.scale != view.scale ||
+      oldDelegate.view.origin != view.origin;
+}
+
 // ---------------------------------------------------------------------------
 // 3D
 
-/// Camera that orbits the city center.
 /// A map camera looking down at [target] on the ground: one finger pans,
 /// two fingers zoom and turn. It tilts towards the horizon as it zooms in,
-/// like map apps do.
+/// like map apps do. Units are kilometres.
 class _MapCamera {
-  _MapCamera(this.target);
+  _MapCamera(this.target, this.bounds);
 
   vm.Vector3 target;
+  final Float32List bounds;
 
   /// Angle around the vertical axis; 0 looks north.
-  double azimuth = 0.25;
-  double distance = 22;
+  double azimuth = 0.2;
+  double distance = 9;
 
-  static const minDistance = 7.0;
-  static const maxDistance = 48.0;
+  static const minDistance = 2.5;
+  static const maxDistance = 40.0;
 
   /// Angle above the ground: lower when close, steeper when far.
   double get elevation {
     final t = (distance - minDistance) / (maxDistance - minDistance);
-    return 0.7 + 0.5 * t.clamp(0.0, 1.0);
+    return 0.62 + 0.55 * t.clamp(0.0, 1.0);
   }
 
   PerspectiveCamera camera() {
@@ -432,31 +661,31 @@ class _MapCamera {
   vm.Vector3 get right => vm.Vector3(math.cos(azimuth), 0, math.sin(azimuth));
 
   /// Moves the ground with a drag of [delta] logical pixels, so the point
-  /// under the finger follows it, roughly.
+  /// under the finger follows it, roughly, within the city.
   void pan(Offset delta, double viewHeight) {
     final worldPerPixel =
         2 * distance * math.tan(20 * vm.degrees2Radians) / viewHeight;
-    final away = -towardsCamera;
     final moved =
         target -
-        right * (delta.dx * worldPerPixel) +
-        away * (delta.dy * worldPerPixel / math.sin(elevation));
-    const limit = MapLayout.worldSize / 2;
+        right * (delta.dx * worldPerPixel) -
+        towardsCamera * (delta.dy * worldPerPixel / math.sin(elevation));
     target = vm.Vector3(
-      moved.x.clamp(-limit, limit),
+      moved.x.clamp(bounds[0], bounds[2]),
       0,
-      moved.z.clamp(-limit, limit),
+      moved.z.clamp(bounds[1], bounds[3]),
     );
   }
 }
 
 class _Map3d extends StatefulWidget {
   const _Map3d({
+    required this.city,
     required this.layout,
     required this.focusZoneId,
     required this.onClusterTap,
   });
 
+  final CityMapAsset city;
   final MapLayout layout;
   final String? focusZoneId;
   final ValueChanged<MapCluster> onClusterTap;
@@ -465,9 +694,6 @@ class _Map3d extends StatefulWidget {
   State<_Map3d> createState() => _Map3dState();
 }
 
-/// A character on the map with how it moves.
-typedef _Actor = ({Character character, bool lively, double phase});
-
 class _Map3dState extends State<_Map3d> {
   // Start over the user's zone; the rest of the city is a drag away.
   late final _view = _MapCamera(
@@ -475,129 +701,140 @@ class _Map3dState extends State<_Map3d> {
             .where((z) => z.zone.id == widget.focusZoneId)
             .firstOrNull
             ?.center ??
-        vm.Vector3.zero(),
+        vm.Vector3(
+          (widget.city.bounds[0] + widget.city.bounds[2]) / 2,
+          0,
+          (widget.city.bounds[1] + widget.city.bounds[3]) / 2,
+        ),
+    widget.city.bounds,
   );
-  late final Scene _scene = _buildWorld();
-  final _people = Node(name: 'people');
-  final _actors = <_Actor>[];
-  final _markers = <Node>[];
+  late final Scene _scene = _buildScene();
+  final _crowd = Crowd(scale: MapLayout.characterScale);
+  final _markers = Node(name: 'markers');
+  final _meMarkers = <Node>[];
   double _scaleStartDistance = 0;
   double _scaleStartAzimuth = 0;
+
+  /// Height of a character's head on the map, in kilometres.
+  static const _headHeight = characterHeight * MapLayout.characterScale;
 
   @override
   void initState() {
     super.initState();
-    _buildPeople();
+    _placePeople();
   }
 
   @override
   void didUpdateWidget(_Map3d oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.layout != widget.layout) _buildPeople();
+    if (oldWidget.layout != widget.layout) _placePeople();
   }
 
-  Scene _buildWorld() {
-    final scene = Scene()
-      ..directionalLight = DirectionalLight(
-        direction: vm.Vector3(-0.5, -1, 0.35),
-        intensity: 3.2,
-        castsShadow: true,
-        shadowMaxDistance: 70,
-      )
-      ..environmentSettings = EnvironmentSettings(
-        toneMapping: ToneMappingMode.aces,
-        exposure: 1.05,
-      );
-    final world = _World.instance;
-    scene.add(
-      meshNode(
-        world.water,
-        clayMaterial(const Color(0xFF9ED8F0), roughness: 0.35),
-        position: vm.Vector3(0, -0.45, 0),
-      ),
-    );
-    for (final (i, island) in widget.layout.zones.indexed) {
-      scene.add(world.island(island, i));
-    }
-    scene.add(_people);
-    return scene;
-  }
+  Scene _buildScene() => Scene()
+    ..directionalLight = DirectionalLight(
+      direction: vm.Vector3(-0.5, -1, 0.35),
+      intensity: 3.2,
+      castsShadow: true,
+      shadowMaxDistance: 25,
+      shadowCascadeCount: 2,
+    )
+    ..environmentSettings = EnvironmentSettings(
+      toneMapping: ToneMappingMode.aces,
+      exposure: 1.05,
+    )
+    ..add(buildCityScene(widget.city))
+    ..add(_crowd.root)
+    ..add(_markers);
 
-  void _buildPeople() {
-    _people.removeAll();
-    _actors.clear();
-    _markers.clear();
+  void _placePeople() {
+    _markers.removeAll();
+    _meMarkers.clear();
     final now = DateTime.now();
+    final members = <CrowdMember>[];
     for (final (c, cluster) in widget.layout.clusters.indexed) {
-      final plan = cluster.plan.plan;
-      final lively = plan.isOngoingAt(now);
+      final lively = cluster.plan.plan.isOngoingAt(now);
       if (lively) {
-        // A glowing ring marks plans happening now.
-        final radius = cluster.avatarPositions.length > 1
-            ? (cluster.avatarPositions.first - cluster.center).length + 0.32
-            : 0.4;
-        _people.add(
+        // A glowing ring marks plans happening now, in the same red as the
+        // "now" dot of the labels.
+        _markers.add(
           meshNode(
             TorusGeometry(
-              radius: radius,
-              tubeRadius: 0.045,
+              radius: cluster.radius + 0.12,
+              tubeRadius: 0.018,
               tubularSegments: 8,
             ),
-            // The same red as the "happening now" dot of the labels.
             glowMaterial(liveColor),
-            position: cluster.center + vm.Vector3(0, 0.03, 0),
+            position: cluster.center + vm.Vector3(0, 0.01, 0),
           ),
         );
       }
       for (final (i, participant) in cluster.participants.indexed) {
-        final character = Character.build(participant.avatar);
-        character.root
-          ..position = cluster.avatarPositions[i]
-          ..scale = vm.Vector3.all(0.75);
-        _people.add(character.root);
-        _actors.add((
-          character: character,
-          lively: lively,
-          phase: c * 0.7 + i * 0.37,
-        ));
+        members.add(
+          CrowdMember(
+            avatar: participant.avatar,
+            position: cluster.avatarPositions[i],
+            lively: lively,
+            phase: c * 0.7 + i * 0.37,
+          ),
+        );
         if (participant.isMe) {
           final marker = meshNode(
-            _World.instance.marker,
+            _MarkerGeometry.instance.cone,
             glowMaterial(const Color(0xFFFF6F91)),
-            position: cluster.avatarPositions[i] + vm.Vector3(0, 1.05, 0),
+            position: cluster.avatarPositions[i],
             // A cone pointing down at the user's character.
             rotation: vm.Quaternion.axisAngle(vm.Vector3(1, 0, 0), math.pi),
           );
-          _people.add(marker);
           _markers.add(marker);
+          _meMarkers.add(marker);
         }
       }
     }
+    _crowd.setMembers(members);
   }
 
   void _tick(Duration elapsed, double deltaSeconds) {
     final seconds = elapsed.inMicroseconds / 1e6;
+    _flyStep(deltaSeconds);
     // Characters turn to face the camera, so faces stay visible.
-    final facing = vm.Quaternion.axisAngle(vm.Vector3(0, 1, 0), -_view.azimuth);
-    for (final actor in _actors) {
-      actor.character.root.rotation = facing;
-      actor.character.animate(
-        seconds,
-        lively: actor.lively,
-        phase: actor.phase,
-      );
-    }
-    for (final marker in _markers) {
-      final base = marker.position;
+    _crowd.update(seconds, facing: -_view.azimuth);
+    for (final marker in _meMarkers) {
+      final at = marker.position;
       marker.position = vm.Vector3(
-        base.x,
-        1.05 + 0.08 * math.sin(seconds * 3),
-        base.z,
+        at.x,
+        _headHeight + 0.1 + 0.03 * math.sin(seconds * 3),
+        at.z,
       );
     }
   }
 
+  /// Beyond this distance each zone shows one summary instead of a bubble
+  /// per group, and tapping it flies there.
+  static const _summaryDistance = 13.0;
+
+  /// Where the camera is flying to, if anywhere.
+  ({vm.Vector3 target, double distance})? _flight;
+
+  void _flyTo(ZoneSpot zone) => _flight = (target: zone.center, distance: 7);
+
+  /// Eases the camera towards [_flight], frame-rate independently.
+  void _flyStep(double deltaSeconds) {
+    final flight = _flight;
+    if (flight == null) return;
+    final t = 1 - math.exp(-deltaSeconds * 5);
+    setState(() {
+      _view.target += (flight.target - _view.target) * t;
+      _view.distance += (flight.distance - _view.distance) * t;
+      if ((flight.target - _view.target).length < 0.01 &&
+          (flight.distance - _view.distance).abs() < 0.01) {
+        _flight = null;
+      }
+    });
+  }
+
   void _onScaleStart(ScaleStartDetails details) {
+    // Touching the map takes over from any flight.
+    _flight = null;
     _scaleStartDistance = _view.distance;
     _scaleStartAzimuth = _view.azimuth;
   }
@@ -630,7 +867,7 @@ class _Map3dState extends State<_Map3d> {
     var best = 56.0;
     for (final cluster in widget.layout.clusters) {
       final at = camera.worldToScreen(
-        cluster.center + vm.Vector3(0, 0.4, 0),
+        cluster.center + vm.Vector3(0, _headHeight / 2, 0),
         size,
       );
       if (at == null) continue;
@@ -672,10 +909,11 @@ class _Map3dState extends State<_Map3d> {
               ),
             ),
             _Overlay(
+              city: widget.city,
               layout: widget.layout,
               project: project,
-              bubbleLift: 1.15,
-              labelOffset: _view.towardsCamera * (MapLayout.islandRadius + 0.3),
+              bubbleLift: _headHeight + 0.15,
+              onZoneTap: _view.distance > _summaryDistance ? _flyTo : null,
               onClusterTap: widget.onClusterTap,
             ),
           ],
@@ -685,122 +923,15 @@ class _Map3dState extends State<_Map3d> {
   }
 }
 
-/// Geometry and scenery shared by the 3D map.
-class _World {
-  _World._();
+class _MarkerGeometry {
+  _MarkerGeometry._();
 
-  static final instance = _World._();
+  static final instance = _MarkerGeometry._();
 
-  final water = CylinderGeometry(
-    bottomRadius: 30,
-    topRadius: 30,
-    height: 0.2,
-    radialSegments: 64,
-  );
-  final islandShape = CylinderGeometry(
-    bottomRadius: MapLayout.islandRadius + 0.08,
-    topRadius: MapLayout.islandRadius,
-    height: 0.5,
-    radialSegments: 40,
-  );
-  final trunk = CylinderGeometry(
-    bottomRadius: 0.06,
-    topRadius: 0.05,
-    height: 0.3,
-    radialSegments: 8,
-  );
-  final crown = CylinderGeometry(
-    bottomRadius: 0.3,
+  final cone = CylinderGeometry(
+    bottomRadius: 0.04,
     topRadius: 0,
-    height: 0.65,
-    radialSegments: 10,
-  );
-  final bush = SphereGeometry(radius: 0.22, segments: 12, rings: 8);
-  final house = CuboidGeometry(vm.Vector3(0.48, 0.4, 0.48));
-  final roof = CylinderGeometry(
-    bottomRadius: 0.44,
-    topRadius: 0,
-    height: 0.32,
-    radialSegments: 4,
-  );
-  final marker = CylinderGeometry(
-    bottomRadius: 0.11,
-    topRadius: 0,
-    height: 0.22,
+    height: 0.08,
     radialSegments: 12,
   );
-
-  static const _grass = [
-    Color(0xFFB8E0A8),
-    Color(0xFFA8D8B9),
-    Color(0xFFC9E6A3),
-    Color(0xFFB5DDC6),
-  ];
-  static const _walls = [
-    Color(0xFFFFF4E0),
-    Color(0xFFFFE3E3),
-    Color(0xFFE6E0FF),
-    Color(0xFFE0F2FF),
-  ];
-
-  /// An island for [island] with a few trees and houses on its rim, placed
-  /// from a seed of the zone id so each zone always looks the same.
-  Node island(MapIsland island, int index) {
-    final root = Node(name: 'zone:${island.zone.id}')..position = island.center;
-    root.add(
-      meshNode(
-        islandShape,
-        clayMaterial(_grass[index % _grass.length], roughness: 0.9),
-        position: vm.Vector3(0, -0.25, 0),
-      ),
-    );
-    final random = math.Random(
-      island.zone.id.codeUnits.fold<int>(7, (h, c) => h * 31 + c),
-    );
-    final green = clayMaterial(const Color(0xFF5FAF6A), roughness: 0.8);
-    final bark = clayMaterial(const Color(0xFF9C6B4E));
-    final roofMaterial = clayMaterial(const Color(0xFFE07A5F));
-    const items = 7;
-    for (var i = 0; i < items; i++) {
-      final angle = (i + random.nextDouble() * 0.6) * 2 * math.pi / items;
-      final radius = 1.45 + random.nextDouble() * 0.25;
-      final at = vm.Vector3(
-        radius * math.sin(angle),
-        0,
-        radius * math.cos(angle),
-      );
-      final item = Node()..position = at;
-      switch (random.nextInt(3)) {
-        case 0:
-          item
-            ..add(meshNode(trunk, bark, position: vm.Vector3(0, 0.15, 0)))
-            ..add(meshNode(crown, green, position: vm.Vector3(0, 0.6, 0)));
-        case 1:
-          item.add(meshNode(bush, green, position: vm.Vector3(0, 0.14, 0)));
-        default:
-          item
-            ..rotation = vm.Quaternion.axisAngle(vm.Vector3(0, 1, 0), angle)
-            ..add(
-              meshNode(
-                house,
-                clayMaterial(_walls[random.nextInt(_walls.length)]),
-                position: vm.Vector3(0, 0.2, 0),
-              ),
-            )
-            ..add(
-              meshNode(
-                roof,
-                roofMaterial,
-                position: vm.Vector3(0, 0.56, 0),
-                rotation: vm.Quaternion.axisAngle(
-                  vm.Vector3(0, 1, 0),
-                  math.pi / 4,
-                ),
-              ),
-            );
-      }
-      root.add(item);
-    }
-    return root;
-  }
 }

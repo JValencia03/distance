@@ -57,9 +57,10 @@ void main() {
 
     expect(find.byType(ClusterBubble), findsNWidgets(2));
     expect(find.byType(AvatarBadge), findsNWidgets(3));
-    expect(find.text('Chapinero'), findsWidgets);
-    expect(find.text('Usaquén'), findsWidgets);
     expect(find.text('Tú'), findsOneWidget);
+    // The real city is drawn, with the attribution its license requires.
+    expect(find.text('© OpenStreetMap contributors'), findsOneWidget);
+    expect(find.text('Monserrate'), findsOneWidget);
     expect(
       find.bySemanticsLabel('Leer: Leer en el café, 2 personas en Usaquén'),
       findsOneWidget,

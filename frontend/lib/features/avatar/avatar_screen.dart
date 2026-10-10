@@ -48,13 +48,7 @@ class _AvatarScreenState extends State<AvatarScreen> {
         _isDefault = profile.isDefault;
       });
     } catch (error) {
-      if (!mounted) return;
-      // `.wait` wraps the failure of either request.
-      setState(
-        () => _loadError = error is ParallelWaitError
-            ? (error.errors.$1 ?? error.errors.$2)
-            : error,
-      );
+      if (mounted) setState(() => _loadError = unwrapWaitError(error));
     }
   }
 

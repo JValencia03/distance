@@ -164,6 +164,19 @@
   "mapLegendUpcoming": "Próximos",
   "mapYou": "Tú",
   "mapNow": "Ahora",
+  "mapZonePlans": "{count, plural, =1{1 plan} other{{count} planes}}",
+  "@mapZonePlans": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "mapZoneLabel": "{zone}: {plans}, {people}",
+  "@mapZoneLabel": {
+    "description": "Screen reader label of a zone summary on the map.",
+    "placeholders": {
+      "zone": { "type": "String" },
+      "plans": { "type": "String" },
+      "people": { "type": "String" }
+    }
+  },
   "mapPeople": "{count, plural, =1{1 persona} other{{count} personas}}",
   "@mapPeople": {
     "placeholders": { "count": { "type": "int" } }

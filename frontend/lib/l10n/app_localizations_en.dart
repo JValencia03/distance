@@ -362,6 +362,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get mapNow => 'Now';
 
   @override
+  String mapZonePlans(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count plans',
+      one: '1 plan',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String mapZoneLabel(String zone, String plans, String people) {
+    return '$zone: $plans, $people';
+  }
+
+  @override
   String mapPeople(int count) {
     String _temp0 = intl.Intl.pluralLogic(
       count,

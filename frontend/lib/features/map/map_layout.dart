@@ -4,20 +4,20 @@ import 'package:vector_math/vector_math.dart' as vm;
 
 import 'package:distance/data/models.dart';
 
-/// Where everything on the plans map goes, in world units, independent of
-/// how it is drawn.
+/// Where a zone's people gather on the map, in world units.
+typedef ZonePlacer = vm.Vector3 Function(MapZone zone);
+
+/// Where everyone on the plans map stands, independent of how it is drawn.
 ///
-/// Zones become islands laid out like the real city: world +X is east and
-/// +Z is north, so a camera looking along +Z sees north at the top. Each
-/// participant stands on the island of the zone they chose, grouped with
-/// the people of the same plan in a [MapCluster].
+/// World units are kilometres of the real city: +X is east and +Z north.
+/// Each participant stands in the district of the zone they chose, grouped
+/// with the people of the same plan in a [MapCluster].
 class MapLayout {
   MapLayout._(this.zones, this.clusters);
 
-  factory MapLayout.of(CityMap map) {
+  factory MapLayout.of(CityMap map, {required ZonePlacer place}) {
     final zones = {
-      for (final zone in map.zones)
-        zone.id: MapIsland(zone, worldPosition(zone.x, zone.y)),
+      for (final zone in map.zones) zone.id: ZoneSpot(zone, place(zone)),
     };
 
     // Group each plan's participants by zone, keeping plans in API order
@@ -40,10 +40,11 @@ class MapLayout {
 
     final clusters = <MapCluster>[];
     for (final MapEntry(key: zoneId, value: zoneGroups) in groups.entries) {
-      final island = zones[zoneId]!;
+      final spot = zones[zoneId]!;
       final shown = zoneGroups.take(maxClustersPerZone).toList();
       for (final (index, (plan, people)) in shown.indexed) {
-        final center = island.center + _ringOffset(index, shown.length, 0.95);
+        final center =
+            spot.center + _ringOffset(index, shown.length, clusterSpacing);
         // The current user is always drawn, ahead of the others.
         final ordered = [
           ...people.where((p) => p.isMe),
@@ -53,7 +54,7 @@ class MapLayout {
         clusters.add(
           MapCluster(
             plan: plan,
-            zone: island.zone,
+            zone: spot.zone,
             center: center,
             participants: visible,
             avatarPositions: [
@@ -69,26 +70,24 @@ class MapLayout {
     return MapLayout._(zones.values.toList(), clusters);
   }
 
-  /// Side of the square the 0..1 zone layout is scaled to.
-  static const worldSize = 32.0;
-
-  /// Radius of a zone island. Zones are at least ~4 units apart.
-  static const islandRadius = 1.9;
-
   /// More plans in one zone are left out of the drawing; the list view
   /// still has them.
   static const maxClustersPerZone = 6;
   static const maxAvatarsPerCluster = 8;
 
-  /// Distance between neighbouring characters in a cluster.
-  static const avatarSpacing = 0.32;
+  /// Distance between neighbouring plan groups in a zone, in kilometres.
+  static const clusterSpacing = 0.6;
 
-  final List<MapIsland> zones;
+  /// Distance between neighbouring characters in a group.
+  static const avatarSpacing = 0.14;
+
+  /// Characters are drawn this many kilometres per model unit, about
+  /// 350 m tall: oversized like board-game pieces so they read at city
+  /// scale.
+  static const characterScale = 0.32;
+
+  final List<ZoneSpot> zones;
   final List<MapCluster> clusters;
-
-  /// Maps a normalized zone position (x east, y south) to the world.
-  static vm.Vector3 worldPosition(double x, double y) =>
-      vm.Vector3((x - 0.5) * worldSize, 0, (0.5 - y) * worldSize);
 
   /// Offset of item [index] of [count] spread on a circle. A single item
   /// stays at the center; the radius grows with the count so neighbours
@@ -101,8 +100,8 @@ class MapLayout {
   }
 }
 
-class MapIsland {
-  const MapIsland(this.zone, this.center);
+class ZoneSpot {
+  const ZoneSpot(this.zone, this.center);
 
   final MapZone zone;
   final vm.Vector3 center;
@@ -135,4 +134,8 @@ class MapCluster {
   final int peopleInZone;
 
   bool get includesMe => participants.any((p) => p.isMe);
+
+  /// How far the group spreads from its center.
+  double get radius =>
+      avatarPositions.fold(0.0, (r, p) => math.max(r, (p - center).length));
 }

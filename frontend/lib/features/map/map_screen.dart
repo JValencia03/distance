@@ -4,6 +4,7 @@ import 'package:distance/data/distance_api.dart';
 import 'package:distance/data/models.dart';
 import 'package:distance/features/avatar/avatar_badge.dart';
 import 'package:distance/features/avatar/avatar_screen.dart';
+import 'package:distance/features/map/city_map.dart';
 import 'package:distance/features/map/map_layout.dart';
 import 'package:distance/features/map/map_view.dart';
 import 'package:distance/features/plans/plan_detail_screen.dart';
@@ -22,6 +23,7 @@ class MapScreen extends StatefulWidget {
     required this.catalog,
     required this.zone,
     this.initialActivity,
+    this.loadCity = loadCityMap,
   });
 
   final DistanceApi api;
@@ -31,12 +33,16 @@ class MapScreen extends StatefulWidget {
   final Zone zone;
   final Activity? initialActivity;
 
+  /// Loads the city drawn under the plans; the bundled one by default.
+  final Future<CityMapAsset> Function() loadCity;
+
   @override
   State<MapScreen> createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
   late Activity? _activity = widget.initialActivity;
+  CityMapAsset? _city;
   MapLayout? _layout;
   Object? _error;
   bool _loading = true;
@@ -53,11 +59,17 @@ class _MapScreenState extends State<MapScreen> {
       _error = null;
     });
     try {
-      final map = await widget.api.fetchMap(activityId: _activity?.id);
+      final (city, map) = await (
+        widget.loadCity(),
+        widget.api.fetchMap(activityId: _activity?.id),
+      ).wait;
       if (!mounted) return;
-      setState(() => _layout = MapLayout.of(map));
+      setState(() {
+        _city = city;
+        _layout = MapLayout.of(map, place: city.placeOf);
+      });
     } catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted) setState(() => _error = unwrapWaitError(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -104,12 +116,14 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final layout = _layout;
+    final city = _city;
     final Widget body;
-    if (layout != null) {
+    if (layout != null && city != null) {
       body = Stack(
         children: [
           Positioned.fill(
             child: MapView(
+              city: city,
               layout: layout,
               focusZoneId: widget.zone.id,
               onClusterTap: _showCluster,
